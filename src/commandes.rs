@@ -50,7 +50,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
 
     match m.action.as_str() {
         // Commandes standard
-        //TRANSACTION_NOUVELLE_VERSION => commande_nouvelle_version(middleware, m, gestionnaire).await,
+        TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
 
         // COMMANDE_INDEXER => commande_reindexer(middleware, m, gestionnaire).await,
 
@@ -59,28 +59,44 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
     }
 }
 
-// async fn commande_nouvelle_version<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireGrosFichiers)
-//     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-//     where M: GenerateurMessages + MongoDao + ValidateurX509,
-// {
-//     debug!("commande_nouvelle_version Consommer commande : {:?}", & m.message);
-//     let commande: TransactionNouvelleVersion = m.message.get_msg().map_contenu(None)?;
-//     debug!("Commande nouvelle versions parsed : {:?}", commande);
-//
-//     // Autorisation: Action usager avec compte prive ou delegation globale
-//     let user_id = m.get_user_id();
-//     let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-//     if role_prive && user_id.is_some() {
-//         // Ok
-//     } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-//         // Ok
-//     } else {
-//         Err(format!("grosfichiers.consommer_commande: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-//     }
-//
-//     // Traiter la transaction
-//     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-// }
+async fn commande_poster<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commande_poster Consommer commande : {:?}", & m.message);
+    let commande: TransactionPoster = m.message.get_msg().map_contenu(None)?;
+    debug!("Commande nouvelle versions parsed : {:?}", commande);
+
+    {
+        let version_commande = m.message.get_entete().version;
+        if version_commande != 1 {
+            Err(format!("commandes.commande_poster: Version non supportee {:?}", version_commande))?
+        }
+    }
+
+    let user_id = m.get_user_id();
+    match m.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
+        true => {
+            // Compte systeme
+        },
+        false => {
+            // Autorisation: Action usager avec compte prive ou delegation globale
+            let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+            if role_prive && user_id.is_some() {
+                // Ok
+            } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+                // Ok
+            } else {
+                Err(format!("commandes.commande_poster: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+            }
+        }
+    }
+
+    // TODO Valider message
+
+    // Traiter la transaction
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
 
 // #[derive(Clone, Debug, Deserialize)]
 // struct CommandeIndexerContenu {

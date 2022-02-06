@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::convert::TryInto;
 
@@ -31,13 +31,12 @@ where
     // Autorisation
     match m.action.as_str() {
         // 4.secure - doivent etre validees par une commande
-        // TRANSACTION_NOUVELLE_VERSION |
-        // TRANSACTION_DECRIRE_COLLECTION => {
-        //     match m.verifier_exchanges(vec![Securite::L4Secure]) {
-        //         true => Ok(()),
-        //         false => Err(format!("transactions.consommer_transaction: Trigger cedule autorisation invalide (pas 4.secure)"))
-        //     }?;
-        // },
+        TRANSACTION_POSTER => {
+            match m.verifier_exchanges(vec![Securite::L4Secure]) {
+                true => Ok(()),
+                false => Err(format!("transactions.consommer_transaction: Trigger cedule autorisation invalide (pas 4.secure)"))
+            }?;
+        },
         // 3.protege ou 4.secure
         // TRANSACTION_ASSOCIER_CONVERSIONS |
         // TRANSACTION_ASSOCIER_VIDEO => {
@@ -60,146 +59,94 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         T: Transaction
 {
     match transaction.get_action() {
-        // TRANSACTION_NOUVELLE_VERSION => transaction_nouvelle_version(gestionnaire, middleware, transaction).await,
+        TRANSACTION_POSTER => transaction_poster(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
 
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct TransactionNouvelleVersion {
-//     fuuid: String,
-//     cuuid: Option<String>,
-//     tuuid: Option<String>,  // uuid de la premiere commande/transaction comme collateur de versions
-//     nom: String,
-//     mimetype: String,
-//     taille: u64,
-//     #[serde(rename="dateFichier")]
-//     date_fichier: DateEpochSeconds,
-// }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionPoster {
+    from: String,
+    to: Vec<String>,
+    cc: Option<Vec<String>>,
+    bcc: Option<Vec<String>>,
+    reply_to: Option<String>,
+    subject: Option<String>,
+    content: Option<String>,
+    attachments: Option<Vec<String>>,
+}
 
-// async fn transaction_nouvelle_version<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
-//     where
-//         M: GenerateurMessages + MongoDao,
-//         T: Transaction
-// {
-//     debug!("transaction_nouvelle_version Consommer transaction : {:?}", &transaction);
-//     let transaction_fichier: TransactionNouvelleVersion = match transaction.clone().convertir::<TransactionNouvelleVersion>() {
-//         Ok(t) => t,
-//         Err(e) => Err(format!("grosfichiers.transaction_nouvelle_version Erreur conversion transaction : {:?}", e))?
-//     };
-//
-//     // Determiner tuuid - si non fourni, c'est l'uuid-transaction (implique un nouveau fichier)
-//     let tuuid = match &transaction_fichier.tuuid {
-//         Some(t) => t.clone(),
-//         None => String::from(transaction.get_uuid_transaction())
-//     };
-//
-//     // Conserver champs transaction uniquement (filtrer champs meta)
-//     let mut doc_bson_transaction = match convertir_to_bson(&transaction_fichier) {
-//         Ok(d) => d,
-//         Err(e) => Err(format!("grosfichiers.transaction_nouvelle_version Erreur conversion transaction en bson : {:?}", e))?
-//     };
-//
-//     let fuuid = transaction_fichier.fuuid;
-//     let cuuid = transaction_fichier.cuuid;
-//     let nom_fichier = transaction_fichier.nom;
-//     let mimetype = transaction_fichier.mimetype;
-//
-//     let user_id = match transaction.get_enveloppe_certificat() {
-//         Some(e) => {
-//             e.get_user_id()?.to_owned()
-//         },
-//         None => None
-//     };
-//
-//     doc_bson_transaction.insert(CHAMP_FUUID_MIMETYPES, doc! {&fuuid: &mimetype});
-//
-//     // Retirer champ CUUID, pas utile dans l'information de version
-//     doc_bson_transaction.remove(CHAMP_CUUID);
-//
-//     let mut flag_media = false;
-//
-//     // Inserer document de version
-//     {
-//         let collection = middleware.get_collection(NOM_COLLECTION_VERSIONS)?;
-//         let mut doc_version = doc_bson_transaction.clone();
-//         doc_version.insert(CHAMP_TUUID, &tuuid);
-//         doc_version.insert(CHAMP_FUUIDS, vec![&fuuid]);
-//
-//         // Information optionnelle pour accelerer indexation/traitement media
-//         if mimetype.starts_with("image") {
-//             flag_media = true;
-//             doc_version.insert(CHAMP_FLAG_MEDIA, "image");
-//             doc_version.insert(CHAMP_FLAG_MEDIA_TRAITE, false);
-//         } else if mimetype.starts_with("video") {
-//             flag_media = true;
-//             doc_version.insert(CHAMP_FLAG_MEDIA, "video");
-//             doc_version.insert(CHAMP_FLAG_MEDIA_TRAITE, false);
-//         } else if mimetype =="application/pdf" {
-//             flag_media = true;
-//             doc_version.insert(CHAMP_FLAG_MEDIA, "poster");
-//             doc_version.insert(CHAMP_FLAG_MEDIA_TRAITE, false);
-//         }
-//         doc_version.insert(CHAMP_FLAG_INDEXE, false);
-//
-//         match collection.insert_one(doc_version, None).await {
-//             Ok(_) => (),
-//             Err(e) => Err(format!("grosfichiers.transaction_nouvelle_version Erreur insertion nouvelle version {} : {:?}", fuuid, e))?
-//         }
-//     }
-//
-//     // Retirer champs cles - ils sont inutiles dans la version
-//     doc_bson_transaction.remove(CHAMP_TUUID);
-//     doc_bson_transaction.remove(CHAMP_FUUID);
-//
-//     let filtre = doc! {CHAMP_TUUID: &tuuid};
-//     let mut add_to_set = doc!{"fuuids": &fuuid};
-//     // Ajouter collection au besoin
-//     if let Some(c) = cuuid {
-//         add_to_set.insert("cuuids", c);
-//     }
-//
-//     let ops = doc! {
-//         "$set": {
-//             "version_courante": doc_bson_transaction,
-//             CHAMP_FUUID_V_COURANTE: &fuuid,
-//             CHAMP_MIMETYPE: &mimetype,
-//             CHAMP_SUPPRIME: false,
-//         },
-//         "$addToSet": add_to_set,
-//         "$setOnInsert": {
-//             "nom": &nom_fichier,
-//             "tuuid": &tuuid,
-//             CHAMP_CREATION: Utc::now(),
-//             CHAMP_USER_ID: &user_id,
-//         },
-//         "$currentDate": {CHAMP_MODIFICATION: true}
-//     };
-//     let opts = UpdateOptions::builder().upsert(true).build();
-//     let collection = middleware.get_collection(NOM_COLLECTION_FICHIERS_REP)?;
-//     debug!("nouveau fichier update ops : {:?}", ops);
-//     let resultat = match collection.update_one(filtre, ops, opts).await {
-//         Ok(r) => r,
-//         Err(e) => Err(format!("grosfichiers.transaction_cle Erreur update_one sur transcation : {:?}", e))?
-//     };
-//     debug!("nouveau fichier Resultat transaction update : {:?}", resultat);
-//
-//     if flag_media == true {
-//         debug!("Emettre une commande de conversion pour media {}", fuuid);
-//         match emettre_commande_media(middleware, &tuuid, &fuuid, &mimetype).await {
-//             Ok(()) => (),
-//             Err(e) => error!("transactions.transaction_nouvelle_version Erreur emission commande poster media {} : {:?}", fuuid, e)
-//         }
-//     }
-//
-//     debug!("Emettre une commande d'indexation pour {}", fuuid);
-//     match emettre_commande_indexation(gestionnaire, middleware, &tuuid, &fuuid).await {
-//         Ok(()) => (),
-//         Err(e) => error!("transactions.transaction_nouvelle_version Erreur emission commande poster media {} : {:?}", fuuid, e)
-//     }
-//
-//     // Emettre fichier pour que tous les clients recoivent la mise a jour
-//     emettre_evenement_maj_fichier(middleware, &tuuid).await?;
-//
-//     middleware.reponse_ok()
-// }
+async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao,
+        T: Transaction
+{
+    debug!("transaction_poster Consommer transaction : {:?}", &transaction);
+    let uuid_transaction = transaction.get_uuid_transaction();
+    let user_id = match transaction.get_enveloppe_certificat() {
+        Some(e) => e.get_user_id()?.to_owned(),
+        None => None
+    };
+
+    let transaction_poster: TransactionPoster = match transaction.clone().convertir::<TransactionPoster>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("messagerie.transaction_poster Erreur conversion transaction : {:?}", e))?
+    };
+
+    // Conserver document dans outgoing et flags dans outgoing_processing
+    let mut doc_bson_transaction = match convertir_to_bson(&transaction_poster) {
+        Ok(d) => d,
+        Err(e) => Err(format!("transactions.transaction_poster Erreur conversion transaction en bson : {:?}", e))?
+    };
+
+    let mut dns_adresses: HashSet<String> = HashSet::new();
+    let mut destinataires = Document::new();
+    for dest in &transaction_poster.to {
+        let mut dest_split = dest.split("/");
+        let mut user: &str = dest_split.next().expect("user");
+        if user.starts_with("@") {
+            user = user.trim_start_matches("@");
+        }
+        let dns_addr = dest_split.next().expect("dns_addr");
+        dns_adresses.insert(dns_addr.into());
+        let flags = doc! {
+            "user": user,
+            "dns": dns_addr,
+            "idmg": None::<&str>,
+            "sent": false,
+            "retry": 0,
+        };
+        destinataires.insert(dest.to_owned(), flags);
+    }
+
+    let dns_adresses: Vec<String> = dns_adresses.into_iter().collect();
+    let doc_processing = doc! {
+        TRANSACTION_CHAMP_UUID_TRANSACTION: uuid_transaction,
+        "destinataires": destinataires,
+        "user_id": user_id,
+        "dns": dns_adresses,
+    };
+
+    // Inserer document de message dans outgoing
+    {
+        let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+        match collection.insert_one(doc_bson_transaction, None).await {
+            Ok(_) => (),
+            Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing {} : {:?}", uuid_transaction, e))?
+        }
+    }
+
+    // Inserer document de traitement dans outgoint_processing
+    {
+        let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+        match collection.insert_one(doc_processing, None).await {
+            Ok(_) => (),
+            Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing_processing {} : {:?}", uuid_transaction, e))?
+        }
+    }
+
+    // Emettre requete resolve vers CoreTopologie
+    // emettre_evenement_maj_fichier(middleware, &tuuid).await?;
+
+    middleware.reponse_ok()
+}

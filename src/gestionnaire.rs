@@ -56,9 +56,11 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
     fn get_collection_transactions(&self) -> String { String::from(NOM_COLLECTION_TRANSACTIONS) }
 
     fn get_collections_documents(&self) -> Vec<String> { vec![
-        String::from(NOM_COLLECTION_VERSIONS),
-        String::from(NOM_COLLECTION_FICHIERS_REP),
-        String::from(NOM_COLLECTION_DOCUMENTS),
+        String::from(NOM_COLLECTION_INCOMING),
+        String::from(NOM_COLLECTION_OUTGOING),
+        String::from(NOM_COLLECTION_OUTGOING_PROCESSING),
+        String::from(NOM_COLLECTION_ATTACHMENTS),
+        String::from(NOM_COLLECTION_ATTACHMENTS_PROCESSING),
     ] }
 
     fn get_q_transactions(&self) -> String { String::from(NOM_Q_TRANSACTIONS) }
@@ -119,27 +121,14 @@ pub fn preparer_queues() -> Vec<QueueType> {
     // RK 2.prive
     let requetes_privees: Vec<&str> = vec![
         // REQUETE_ACTIVITE_RECENTE,
-        // REQUETE_FAVORIS,
-        // REQUETE_DOCUMENTS_PAR_TUUID,
-        // REQUETE_CONTENU_COLLECTION,
-        // REQUETE_GET_CORBEILLE,
-        // REQUETE_RECHERCHE_INDEX,
-        // REQUETE_GET_PERMISSION,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
     }
 
     let commandes_privees: Vec<&str> = vec![
-        // TRANSACTION_NOUVELLE_COLLECTION,
-        // TRANSACTION_AJOUTER_FICHIERS_COLLECTION,
-        // TRANSACTION_DEPLACER_FICHIERS_COLLECTION,
-        // TRANSACTION_RETIRER_DOCUMENTS_COLLECTION,
-        // TRANSACTION_SUPPRIMER_DOCUMENTS,
-        // TRANSACTION_RECUPERER_DOCUMENTS,
-        // TRANSACTION_CHANGER_FAVORIS,
-        // TRANSACTION_DECRIRE_FICHIER,
-        // TRANSACTION_DECRIRE_COLLECTION,
+        TRANSACTION_POSTER,
+
         // COMMANDE_INDEXER,
     ];
     for cmd in commandes_privees {
@@ -148,10 +137,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
     }
 
     let commandes_protegees: Vec<&str> = vec![
-        // TRANSACTION_NOUVELLE_VERSION,  // fichiers
         // COMMANDE_INDEXER,
-        // COMMANDE_COMPLETER_PREVIEWS,
-        // COMMANDE_CONFIRMER_FICHIER_INDEXE,
     ];
     for cmd in commandes_protegees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L3Protege});
@@ -171,18 +157,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     let mut rk_transactions = Vec::new();
     let transactions_secures: Vec<&str> = vec![
-        // TRANSACTION_NOUVELLE_VERSION,
-        // TRANSACTION_NOUVELLE_COLLECTION,
-        // TRANSACTION_AJOUTER_FICHIERS_COLLECTION,
-        // TRANSACTION_DEPLACER_FICHIERS_COLLECTION,
-        // TRANSACTION_RETIRER_DOCUMENTS_COLLECTION,
-        // TRANSACTION_SUPPRIMER_DOCUMENTS,
-        // TRANSACTION_RECUPERER_DOCUMENTS,
-        // TRANSACTION_CHANGER_FAVORIS,
-        // TRANSACTION_ASSOCIER_CONVERSIONS,
-        // TRANSACTION_ASSOCIER_VIDEO,
-        // TRANSACTION_DECRIRE_FICHIER,
-        // TRANSACTION_DECRIRE_COLLECTION,
+        TRANSACTION_POSTER,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {
@@ -223,135 +198,135 @@ pub fn preparer_queues() -> Vec<QueueType> {
 pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), String>
     where M: MongoDao
 {
-    // Index fuuids pour fichiers (liste par tuuid)
-    let options_unique_fuuid = IndexOptions {
-        nom_index: Some(format!("fichiers_fuuid")),
-        unique: false
-    };
-    let champs_index_fuuid = vec!(
-        ChampIndex {nom_champ: String::from("fuuids"), direction: 1},
-    );
-    middleware.create_index(
-        NOM_COLLECTION_FICHIERS_REP,
-        champs_index_fuuid,
-        Some(options_unique_fuuid)
-    ).await?;
-
-    // Index cuuids pour collections de fichiers (liste par cuuid)
-    let options_unique_cuuid = IndexOptions {
-        nom_index: Some(format!("fichiers_cuuid")),
-        unique: false
-    };
-    let champs_index_cuuid = vec!(
-        ChampIndex {nom_champ: String::from("cuuids"), direction: 1},
-    );
-    middleware.create_index(
-        NOM_COLLECTION_FICHIERS_REP,
-        champs_index_cuuid,
-        Some(options_unique_cuuid)
-    ).await?;
-
-    // tuuids (serie de fichiers)
-    let options_unique_tuuid = IndexOptions {
-        nom_index: Some(format!("fichiers_tuuid")),
-        unique: true
-    };
-    let champs_index_tuuid = vec!(
-        ChampIndex {nom_champ: String::from(CHAMP_TUUID), direction: 1},
-    );
-    middleware.create_index(
-        NOM_COLLECTION_FICHIERS_REP,
-        champs_index_tuuid,
-        Some(options_unique_tuuid)
-    ).await?;
-
-    // Activite recente des fichiers
-    let options_recents = IndexOptions {
-        nom_index: Some(format!("fichiers_activite_recente")),
-        unique: true
-    };
-    let champs_recents = vec!(
-        ChampIndex {nom_champ: String::from(CHAMP_SUPPRIME), direction: -1},  // pour filtre
-        ChampIndex {nom_champ: String::from(CHAMP_MODIFICATION), direction: -1},
-        ChampIndex {nom_champ: String::from(CHAMP_TUUID), direction: 1},  // Tri stable
-    );
-    middleware.create_index(
-        NOM_COLLECTION_FICHIERS_REP,
-        champs_recents,
-        Some(options_recents)
-    ).await?;
-
-    // Favoris
-    let options_favoris = IndexOptions {
-        nom_index: Some(format!("collections_favoris")),
-        unique: false
-    };
-    let champs_favoris = vec!(
-        ChampIndex {nom_champ: String::from(CHAMP_SUPPRIME), direction: -1},
-        ChampIndex {nom_champ: String::from(CHAMP_FAVORIS), direction: 1},
-    );
-    middleware.create_index(
-        NOM_COLLECTION_FICHIERS_REP,
-        champs_favoris,
-        Some(options_favoris)
-    ).await?;
-
-    // Index cuuid pour collections
-    let options_unique_versions_fuuid = IndexOptions {
-        nom_index: Some(format!("versions_fuuid")),
-        unique: true
-    };
-    let champs_index_versions_fuuid = vec!(
-        ChampIndex {nom_champ: String::from(CHAMP_FUUID), direction: 1},
-    );
-    middleware.create_index(
-        NOM_COLLECTION_VERSIONS,
-        champs_index_versions_fuuid,
-        Some(options_unique_versions_fuuid)
-    ).await?;
-    // Index fuuids pour fichiers (liste par fsuuid)
-    let options_unique_fuuid = IndexOptions {
-        nom_index: Some(format!("Versions_fuuids")),
-        unique: false
-    };
-    let champs_index_fuuid = vec!(
-        ChampIndex {nom_champ: String::from("fuuids"), direction: 1},
-    );
-    middleware.create_index(
-        NOM_COLLECTION_VERSIONS,
-        champs_index_fuuid,
-        Some(options_unique_fuuid)
-    ).await?;
-
-    // Index flag indexe
-    let options_index_indexe = IndexOptions {
-        nom_index: Some(format!("flag_indexe")),
-        unique: false
-    };
-    let champs_index_indexe = vec!(
-        ChampIndex {nom_champ: String::from(CHAMP_FLAG_INDEXE), direction: 1},
-        ChampIndex {nom_champ: String::from(CHAMP_CREATION), direction: 1},
-    );
-    middleware.create_index(
-        NOM_COLLECTION_VERSIONS,
-        champs_index_indexe,
-        Some(options_index_indexe)
-    ).await?;
-
-    // Index flag image_traitees
-    let options_index_media_traite = IndexOptions {
-        nom_index: Some(format!("flag_media_traite")),
-        unique: false
-    };
-    let champs_index_media_traite = vec!(
-        ChampIndex {nom_champ: String::from(CHAMP_FLAG_MEDIA_TRAITE), direction: 1},
-        ChampIndex {nom_champ: String::from(CHAMP_CREATION), direction: 1},
-    );
-    middleware.create_index(
-        NOM_COLLECTION_VERSIONS,
-        champs_index_media_traite,
-        Some(options_index_media_traite)
-    ).await?;
+    // // Index fuuids pour fichiers (liste par tuuid)
+    // let options_unique_fuuid = IndexOptions {
+    //     nom_index: Some(format!("fichiers_fuuid")),
+    //     unique: false
+    // };
+    // let champs_index_fuuid = vec!(
+    //     ChampIndex {nom_champ: String::from("fuuids"), direction: 1},
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_FICHIERS_REP,
+    //     champs_index_fuuid,
+    //     Some(options_unique_fuuid)
+    // ).await?;
+    //
+    // // Index cuuids pour collections de fichiers (liste par cuuid)
+    // let options_unique_cuuid = IndexOptions {
+    //     nom_index: Some(format!("fichiers_cuuid")),
+    //     unique: false
+    // };
+    // let champs_index_cuuid = vec!(
+    //     ChampIndex {nom_champ: String::from("cuuids"), direction: 1},
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_FICHIERS_REP,
+    //     champs_index_cuuid,
+    //     Some(options_unique_cuuid)
+    // ).await?;
+    //
+    // // tuuids (serie de fichiers)
+    // let options_unique_tuuid = IndexOptions {
+    //     nom_index: Some(format!("fichiers_tuuid")),
+    //     unique: true
+    // };
+    // let champs_index_tuuid = vec!(
+    //     ChampIndex {nom_champ: String::from(CHAMP_TUUID), direction: 1},
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_FICHIERS_REP,
+    //     champs_index_tuuid,
+    //     Some(options_unique_tuuid)
+    // ).await?;
+    //
+    // // Activite recente des fichiers
+    // let options_recents = IndexOptions {
+    //     nom_index: Some(format!("fichiers_activite_recente")),
+    //     unique: true
+    // };
+    // let champs_recents = vec!(
+    //     ChampIndex {nom_champ: String::from(CHAMP_SUPPRIME), direction: -1},  // pour filtre
+    //     ChampIndex {nom_champ: String::from(CHAMP_MODIFICATION), direction: -1},
+    //     ChampIndex {nom_champ: String::from(CHAMP_TUUID), direction: 1},  // Tri stable
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_FICHIERS_REP,
+    //     champs_recents,
+    //     Some(options_recents)
+    // ).await?;
+    //
+    // // Favoris
+    // let options_favoris = IndexOptions {
+    //     nom_index: Some(format!("collections_favoris")),
+    //     unique: false
+    // };
+    // let champs_favoris = vec!(
+    //     ChampIndex {nom_champ: String::from(CHAMP_SUPPRIME), direction: -1},
+    //     ChampIndex {nom_champ: String::from(CHAMP_FAVORIS), direction: 1},
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_FICHIERS_REP,
+    //     champs_favoris,
+    //     Some(options_favoris)
+    // ).await?;
+    //
+    // // Index cuuid pour collections
+    // let options_unique_versions_fuuid = IndexOptions {
+    //     nom_index: Some(format!("versions_fuuid")),
+    //     unique: true
+    // };
+    // let champs_index_versions_fuuid = vec!(
+    //     ChampIndex {nom_champ: String::from(CHAMP_FUUID), direction: 1},
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_VERSIONS,
+    //     champs_index_versions_fuuid,
+    //     Some(options_unique_versions_fuuid)
+    // ).await?;
+    // // Index fuuids pour fichiers (liste par fsuuid)
+    // let options_unique_fuuid = IndexOptions {
+    //     nom_index: Some(format!("Versions_fuuids")),
+    //     unique: false
+    // };
+    // let champs_index_fuuid = vec!(
+    //     ChampIndex {nom_champ: String::from("fuuids"), direction: 1},
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_VERSIONS,
+    //     champs_index_fuuid,
+    //     Some(options_unique_fuuid)
+    // ).await?;
+    //
+    // // Index flag indexe
+    // let options_index_indexe = IndexOptions {
+    //     nom_index: Some(format!("flag_indexe")),
+    //     unique: false
+    // };
+    // let champs_index_indexe = vec!(
+    //     ChampIndex {nom_champ: String::from(CHAMP_FLAG_INDEXE), direction: 1},
+    //     ChampIndex {nom_champ: String::from(CHAMP_CREATION), direction: 1},
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_VERSIONS,
+    //     champs_index_indexe,
+    //     Some(options_index_indexe)
+    // ).await?;
+    //
+    // // Index flag image_traitees
+    // let options_index_media_traite = IndexOptions {
+    //     nom_index: Some(format!("flag_media_traite")),
+    //     unique: false
+    // };
+    // let champs_index_media_traite = vec!(
+    //     ChampIndex {nom_champ: String::from(CHAMP_FLAG_MEDIA_TRAITE), direction: 1},
+    //     ChampIndex {nom_champ: String::from(CHAMP_CREATION), direction: 1},
+    // );
+    // middleware.create_index(
+    //     NOM_COLLECTION_VERSIONS,
+    //     champs_index_media_traite,
+    //     Some(options_index_media_traite)
+    // ).await?;
 
     Ok(())
 }
