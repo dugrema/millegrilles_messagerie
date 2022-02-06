@@ -3,21 +3,23 @@ use std::error::Error;
 use std::convert::TryInto;
 
 use log::{debug, error, warn};
-use millegrilles_common_rust::{serde_json, serde_json::json};
+use millegrilles_common_rust::{chrono, serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::{bson, bson::{doc, Document}};
+use millegrilles_common_rust::bson::{Array, Bson};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
-use millegrilles_common_rust::generateur_messages::GenerateurMessages;
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::sauvegarder_transaction_recue;
-use millegrilles_common_rust::mongo_dao::{convertir_to_bson, MongoDao};
+use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
 use millegrilles_common_rust::mongodb::options::UpdateOptions;
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
+use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::transactions::Transaction;
+use millegrilles_common_rust::tokio_stream::StreamExt;
 use crate::gestionnaire::GestionnaireMessagerie;
 
 use crate::constantes::*;
@@ -98,9 +100,11 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         Ok(d) => d,
         Err(e) => Err(format!("transactions.transaction_poster Erreur conversion transaction en bson : {:?}", e))?
     };
+    doc_bson_transaction.insert("uuid_transaction", &uuid_transaction);
+    doc_bson_transaction.insert("user_id", &user_id);
 
     let mut dns_adresses: HashSet<String> = HashSet::new();
-    let mut destinataires = Document::new();
+    let mut destinataires = Array::new();
     for dest in &transaction_poster.to {
         let mut dest_split = dest.split("/");
         let mut user: &str = dest_split.next().expect("user");
@@ -110,13 +114,14 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         let dns_addr = dest_split.next().expect("dns_addr");
         dns_adresses.insert(dns_addr.into());
         let flags = doc! {
+            "destinataire": dest,
             "user": user,
             "dns": dns_addr,
-            "idmg": None::<&str>,
-            "sent": false,
-            "retry": 0,
+            "processed": false,
+            "result": None::<&str>,
         };
-        destinataires.insert(dest.to_owned(), flags);
+
+        destinataires.push(Bson::Document(flags));
     }
 
     let dns_adresses: Vec<String> = dns_adresses.into_iter().collect();
@@ -124,7 +129,10 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         TRANSACTION_CHAMP_UUID_TRANSACTION: uuid_transaction,
         "destinataires": destinataires,
         "user_id": user_id,
-        "dns": dns_adresses,
+        "dns_unresolved": &dns_adresses,
+        "idmgs_mapping": doc!{},
+        "idmgs_unprocessed": Vec::<String>::new(),
+        "created": chrono::Utc::now(),
     };
 
     // Inserer document de message dans outgoing
@@ -147,6 +155,105 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
 
     // Emettre requete resolve vers CoreTopologie
     // emettre_evenement_maj_fichier(middleware, &tuuid).await?;
+    match emettre_requete_resolve(gestionnaire, middleware, uuid_transaction, &dns_adresses).await {
+        Ok(()) => (),
+        Err(e) => Err(format!("transactions.transaction_poster Erreur requete resolve idmg {:?}", e))?,
+    }
 
     middleware.reponse_ok()
+}
+
+async fn emettre_requete_resolve<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, uuid_transaction: &str, dns: &Vec<String>)
+    -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    let correlation_id = format!("outgoing_resolved:{}", uuid_transaction);
+
+    let routage = RoutageMessageAction::builder("CoreTopologie", "resolveIdmg")
+        .exchanges(vec!(Securite::L2Prive))
+        .build();
+
+    let requete = RequeteTopologieResolveIdmg {
+        dns: Some(dns.to_owned()),
+    };
+
+    let reponse = middleware.transmettre_requete(routage, &requete).await?;
+    debug!("transactions.emettre_requete_resolve Reponse resolve topologie : {:?}", reponse);
+    match reponse {
+        TypeMessage::Valide(r) => {
+            debug!("Reponse resolve idmg : {:?}", r);
+            let contenu: ReponseTopologieResolveIdmg = r.message.parsed.map_contenu(None)?;
+            debug!("Reponse resolve idmg contenu parsed : {:?}", contenu);
+            traiter_outgoing_resolved(gestionnaire, middleware, &contenu).await?;
+        },
+        _ => Err(format!("Erreur resolve idmg, mauvais type de reponse"))?
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct RequeteTopologieResolveIdmg {
+    dns: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ReponseTopologieResolveIdmg {
+    dns: Option<HashMap<String, String>>
+}
+
+async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, reponse: &ReponseTopologieResolveIdmg)
+    -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    debug!("transactions.traiter_outgoing_resolved Reponse a traiter : {:?}", reponse);
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+
+    if let Some(d) = &reponse.dns {
+        for (dns, idmg) in d {
+            let filtre = doc! {"dns_unresolved": {"$all": [dns]}};
+            let ops = doc! {
+                "$set": {
+                    format!("idmgs_mapping.{}.retry", idmg): 0,
+                },
+                "$addToSet": {
+                    format!("idmgs_mapping.{}.dns", idmg): dns,
+                    "idmgs_unprocessed": idmg,
+                },
+                "$pull": {"dns_unresolved": dns},
+                "$currentDate": {"last_processed": true},
+            };
+            collection.update_many(filtre, ops, None).await?;
+
+            // let mut curseur = collection.find(filtre, None).await?;
+            // while let Some(d) = curseur.next().await {
+            //     let doc = d?;
+            //     debug!("transactions.traiter_outgoing_resolved Document outgoing_processed a traiter : {:?}", doc);
+            //     let doc_mappe: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
+            //
+            // }
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DocOutgointProcessing {
+    uuid_transaction: String,
+    destinataires_dns: Option<Vec<DocDestinataire>>,
+    user_id: Option<String>,
+    dns_unresolved: Option<Vec<String>>,
+    idmgs_unprocessed: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DocDestinataire {
+    destinataire: String,
+    user: Option<String>,
+    dns: Option<String>,
+    idmg: Option<String>,
+    processed: Option<bool>,
+    result: Option<i32>,
+    retry: Option<u32>,
 }
