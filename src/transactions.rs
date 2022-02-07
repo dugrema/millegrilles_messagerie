@@ -209,8 +209,12 @@ async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, mid
     debug!("transactions.traiter_outgoing_resolved Reponse a traiter : {:?}", reponse);
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
 
+    let mut idmgs: HashSet<String> = HashSet::new();
+
     if let Some(d) = &reponse.dns {
         for (dns, idmg) in d {
+            idmgs.insert(idmg.to_owned());
+
             let filtre = doc! {"dns_unresolved": {"$all": [dns]}};
             let ops = doc! {
                 "$set": {
@@ -224,16 +228,26 @@ async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, mid
                 "$currentDate": {"last_processed": true},
             };
             collection.update_many(filtre, ops, None).await?;
-
-            // let mut curseur = collection.find(filtre, None).await?;
-            // while let Some(d) = curseur.next().await {
-            //     let doc = d?;
-            //     debug!("transactions.traiter_outgoing_resolved Document outgoing_processed a traiter : {:?}", doc);
-            //     let doc_mappe: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
-            //
-            // }
         }
     }
+
+    emettre_evenement_pompe(middleware, Some(idmgs.into_iter().collect())).await?;
+
+    Ok(())
+}
+
+/// Emet un evenement pour declencher la pompe de messages au besoin.
+async fn emettre_evenement_pompe<M>(middleware: &M, idmgs: Option<Vec<String>>)
+    -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_POMPE_POSTE)
+        .exchanges(vec!(Securite::L4Secure))
+        .build();
+
+    let evenement = json!({ "idmgs": idmgs });
+
+    middleware.emettre_evenement(routage, &evenement).await?;
 
     Ok(())
 }

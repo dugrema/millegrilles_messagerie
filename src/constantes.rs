@@ -22,6 +22,8 @@ pub const TRANSACTION_POSTER: &str = "poster";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 
+pub const EVENEMENT_POMPE_POSTE: &str = "pompePoste";
+
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";
 pub const CHAMP_TUUID: &str = "tuuid";  // UUID transaction initiale (fichier ou collection)
