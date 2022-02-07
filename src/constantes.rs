@@ -15,6 +15,7 @@ pub const DOMAINE_FICHIERS_NOM: &str = "fichiers";
 pub const NOM_Q_TRANSACTIONS: &str = "Messagerie/transactions";
 pub const NOM_Q_VOLATILS: &str = "Messagerie/volatils";
 pub const NOM_Q_TRIGGERS: &str = "Messagerie/triggers";
+pub const NOM_Q_MESSAGE_POMPE: &str = "Messagerie/messagePompe";
 
 // pub const REQUETE_ACTIVITE_RECENTE: &str = "activiteRecente";
 

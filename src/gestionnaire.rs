@@ -191,6 +191,18 @@ pub fn preparer_queues() -> Vec<QueueType> {
     // Queue de triggers pour Pki
     queues.push(QueueType::Triggers (DOMAINE_NOM.into()));
 
+    // Queue de pompe de messages
+    let mut rk_pompe = Vec::new();
+    rk_pompe.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_NOM, EVENEMENT_POMPE_POSTE), exchange: Securite::L4Secure});
+    queues.push(QueueType::ExchangeQueue (
+        ConfigQueue {
+            nom_queue: NOM_Q_MESSAGE_POMPE.into(),
+            routing_keys: rk_pompe,
+            ttl: DEFAULT_Q_TTL.into(),
+            durable: true,
+        }
+    ));
+
     queues
 }
 
