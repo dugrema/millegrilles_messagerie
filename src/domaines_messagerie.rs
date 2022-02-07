@@ -23,6 +23,7 @@ use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::transactions::resoumettre_transactions;
 
 use crate::gestionnaire::GestionnaireMessagerie;
+use crate::pompe_messages::PompeMessages;
 
 const DUREE_ATTENTE: u64 = 20000;
 
@@ -62,7 +63,7 @@ fn charger_gestionnaire() -> &'static TypeGestionnaire {
 
     // Inserer les gestionnaires dans la variable static - permet d'obtenir lifetime 'static
     unsafe {
-        GESTIONNAIRE = TypeGestionnaire::PartitionConsignation(Arc::new(GestionnaireMessagerie {}));
+        GESTIONNAIRE = TypeGestionnaire::PartitionConsignation(Arc::new(GestionnaireMessagerie::new() ));
 
         // let mut vec_gestionnaires = Vec::new();
         // vec_gestionnaires.extend(&GESTIONNAIRES);
@@ -138,9 +139,6 @@ async fn build(gestionnaire: &'static TypeGestionnaire) -> (FuturesUnordered<Joi
                 map_senders.extend(routing_g);    // Deplacer vers mapping global
             //}
         }
-
-        // Queues custom
-
 
         // ** Wiring global **
 

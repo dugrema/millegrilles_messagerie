@@ -14,6 +14,7 @@ use millegrilles_common_rust::chrono::Timelike;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::domaines::GestionnaireDomaine;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
+use millegrilles_common_rust::futures::stream::FuturesUnordered;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::messages_generiques::MessageCedule;
 use millegrilles_common_rust::middleware::{Middleware, sauvegarder_traiter_transaction, sauvegarder_transaction_recue};
@@ -21,9 +22,12 @@ use millegrilles_common_rust::mongo_dao::{ChampIndex, convertir_bson_deserializa
 use millegrilles_common_rust::mongodb::Cursor;
 use millegrilles_common_rust::mongodb::options::{CountOptions, FindOptions, Hint, UpdateOptions};
 use millegrilles_common_rust::rabbitmq_dao::{ConfigQueue, ConfigRoutingExchange, QueueType};
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
+use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::Value;
+use millegrilles_common_rust::tokio::spawn;
+use millegrilles_common_rust::tokio::sync::mpsc::Sender;
+use millegrilles_common_rust::tokio::task::JoinHandle;
 use millegrilles_common_rust::tokio::time::{Duration, sleep};
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::transactions::{TraiterTransaction, Transaction, TransactionImpl};
@@ -32,14 +36,34 @@ use millegrilles_common_rust::verificateur::VerificateurMessage;
 use crate::commandes::consommer_commande;
 use crate::constantes::*;
 use crate::evenements::consommer_evenement;
-use crate::pompe_messages::traiter_cedule as traiter_cedule_pompe;
+use crate::pompe_messages::{MessagePompe, PompeMessages, traiter_cedule as traiter_cedule_pompe};
 use crate::requetes::consommer_requete;
 use crate::transactions::*;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct GestionnaireMessagerie {
-    // pub consignation: String,
-    // pub index_dao: Arc<ElasticSearchDaoImpl>,
+    tx_pompe_messages: Mutex<Option<Sender<MessagePompe>>>,
+}
+
+impl Clone for GestionnaireMessagerie {
+    fn clone(&self) -> Self {
+        GestionnaireMessagerie {
+            tx_pompe_messages: Mutex::new(Some(self.get_tx_pompe()))
+        }
+    }
+}
+
+impl GestionnaireMessagerie {
+    pub fn new() -> GestionnaireMessagerie {
+        return GestionnaireMessagerie { tx_pompe_messages: Mutex::new(None) }
+    }
+    pub fn get_tx_pompe(&self) -> Sender<MessagePompe> {
+        let guard = self.tx_pompe_messages.lock().expect("lock tx pompe");
+        match guard.as_ref() {
+            Some(p) => p.clone(),
+            None => panic!("TX pompe message n'est pas configuree")
+        }
+    }
 }
 
 #[async_trait]
@@ -94,7 +118,7 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
     }
 
     async fn consommer_evenement<M>(self: &'static Self, middleware: &M, message: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>> where M: Middleware + 'static {
-        consommer_evenement(middleware, message).await
+        consommer_evenement(self, middleware, message).await
     }
 
     async fn entretien<M>(&self, middleware: Arc<M>) where M: Middleware + 'static {
@@ -114,6 +138,29 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
     {
         aiguillage_transaction(self, middleware, transaction).await
     }
+
+    async fn preparer_threads<M>(self: &'static Self, middleware: Arc<M>)
+        -> Result<(HashMap<String, Sender<TypeMessage>>, FuturesUnordered<JoinHandle<()>>), Box<dyn Error>>
+        where M: Middleware + 'static
+    {
+        // Super
+        let (
+            senders,
+            mut futures
+        ) = self.preparer_threads_super(middleware.clone()).await?;
+
+        // Ajouter pompe dans futures
+        let pompe = PompeMessages::new();
+        {
+            // Injecter tx pour messages de pompe dans le guestionnaire
+            let mut tx_guard = self.tx_pompe_messages.lock().expect("lock tx guard");
+            *tx_guard = Some(pompe.get_tx_pompe());
+        }
+        futures.push(spawn(pompe.run(middleware.clone())));
+
+        Ok((senders, futures))
+    }
+
 }
 
 pub fn preparer_queues() -> Vec<QueueType> {

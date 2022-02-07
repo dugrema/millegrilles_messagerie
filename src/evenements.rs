@@ -12,11 +12,12 @@ use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 
 use crate::constantes::*;
+use crate::gestionnaire::GestionnaireMessagerie;
 use crate::pompe_messages::evenement_pompe_poste;
 
-pub async fn consommer_evenement<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-where
-    M: ValidateurX509 + GenerateurMessages + MongoDao,
+pub async fn consommer_evenement<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
     debug!("gestionnaire.consommer_evenement Consommer evenement : {:?}", &m.message);
 
@@ -27,7 +28,7 @@ where
     }?;
 
     match m.action.as_str() {
-        EVENEMENT_POMPE_POSTE => evenement_pompe_poste(middleware, &m).await,
+        EVENEMENT_POMPE_POSTE => evenement_pompe_poste(gestionnaire, middleware, &m).await,
         _ => Err(format!("gestionnaire.consommer_transaction: Mauvais type d'action pour une transaction : {}", m.action))?,
     }
 }
