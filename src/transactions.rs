@@ -23,6 +23,7 @@ use millegrilles_common_rust::tokio_stream::StreamExt;
 use crate::gestionnaire::GestionnaireMessagerie;
 
 use crate::constantes::*;
+use crate::pompe_messages::emettre_evenement_pompe;
 
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
 where
@@ -232,22 +233,6 @@ async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, mid
     }
 
     emettre_evenement_pompe(middleware, Some(idmgs.into_iter().collect())).await?;
-
-    Ok(())
-}
-
-/// Emet un evenement pour declencher la pompe de messages au besoin.
-async fn emettre_evenement_pompe<M>(middleware: &M, idmgs: Option<Vec<String>>)
-    -> Result<(), Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao
-{
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_POMPE_POSTE)
-        .exchanges(vec!(Securite::L4Secure))
-        .build();
-
-    let evenement = json!({ "idmgs": idmgs });
-
-    middleware.emettre_evenement(routage, &evenement).await?;
 
     Ok(())
 }

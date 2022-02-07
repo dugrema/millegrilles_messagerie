@@ -4,6 +4,8 @@ mod domaines_messagerie;
 mod gestionnaire;
 mod requetes;
 mod transactions;
+mod pompe_messages;
+mod evenements;
 
 use crate::domaines_messagerie::run;
 

@@ -31,6 +31,8 @@ use millegrilles_common_rust::verificateur::VerificateurMessage;
 
 use crate::commandes::consommer_commande;
 use crate::constantes::*;
+use crate::evenements::consommer_evenement;
+use crate::pompe_messages::traiter_cedule as traiter_cedule_pompe;
 use crate::requetes::consommer_requete;
 use crate::transactions::*;
 
@@ -143,6 +145,11 @@ pub fn preparer_queues() -> Vec<QueueType> {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L3Protege});
     }
 
+    let evenements_secure: Vec<&str> = vec![ EVENEMENT_POMPE_POSTE ];
+    for cmd in evenements_secure {
+        rk_volatils.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L4Secure});
+    }
+
     let mut queues = Vec::new();
 
     // Queue de messages volatils (requete, commande, evenements)
@@ -192,16 +199,16 @@ pub fn preparer_queues() -> Vec<QueueType> {
     queues.push(QueueType::Triggers (DOMAINE_NOM.into()));
 
     // Queue de pompe de messages
-    let mut rk_pompe = Vec::new();
-    rk_pompe.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_NOM, EVENEMENT_POMPE_POSTE), exchange: Securite::L4Secure});
-    queues.push(QueueType::ExchangeQueue (
-        ConfigQueue {
-            nom_queue: NOM_Q_MESSAGE_POMPE.into(),
-            routing_keys: rk_pompe,
-            ttl: DEFAULT_Q_TTL.into(),
-            durable: true,
-        }
-    ));
+    // let mut rk_pompe = Vec::new();
+    // rk_pompe.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_NOM, EVENEMENT_POMPE_POSTE), exchange: Securite::L4Secure});
+    // queues.push(QueueType::ExchangeQueue (
+    //     ConfigQueue {
+    //         nom_queue: NOM_Q_MESSAGE_POMPE.into(),
+    //         routing_keys: rk_pompe,
+    //         ttl: DEFAULT_Q_TTL.into(),
+    //         durable: true,
+    //     }
+    // ));
 
     queues
 }
@@ -364,40 +371,37 @@ pub async fn traiter_cedule<M>(gestionnaire: &GestionnaireMessagerie, middleware
     let date_epoch = trigger.get_date();
     let minutes = date_epoch.get_datetime().minute();
 
-    // Executer a toutes les 5 minutes
-    if minutes % 5 == 0 {
-        // debug!("Generer index et media manquants");
-        // if let Err(e) = traiter_media_batch(middleware, 1000).await {
-        //     warn!("Erreur traitement media batch : {:?}", e);
-        // }
-        // if let Err(e) = traiter_index_manquant(middleware, gestionnaire, 1000).await {
-        //     warn!("Erreur traitement index manquant batch : {:?}", e);
-        // }
+    // Relai message vers pompe
+    if let Err(e) = traiter_cedule_pompe(middleware, trigger).await {
+        error!("gestionnaire.traiter_cedule Erreur cedule pompe: {:?}", e);
     }
+
+    // Executer a toutes les 5 minutes
+    // if minutes % 5 == 0 {
+    // }
 
     Ok(())
 }
 
-async fn consommer_evenement<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-where
-    M: ValidateurX509 + GenerateurMessages + MongoDao,
-{
-    debug!("grosfichiers.consommer_evenement Consommer evenement : {:?}", &m.message);
-
-    // Autorisation : doit etre de niveau 3.protege ou 4.secure
-    match m.verifier_exchanges(vec![Securite::L3Protege, Securite::L4Secure]) {
-        true => Ok(()),
-        false => Err(format!("grosfichiers.consommer_evenement: Evenement invalide (pas 3.protege ou 4.secure)")),
-    }?;
-
-    match m.action.as_str() {
-        // EVENEMENT_CLES_MANQUANTES_PARTITION => {
-        //     evenement_cle_manquante(middleware, &m).await?;
-        //     Ok(None)
-        // },
-        _ => Err(format!("grosfichiers.consommer_transaction: Mauvais type d'action pour une transaction : {}", m.action))?,
-    }
-}
+// async fn consommer_evenement<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+// where
+//     M: ValidateurX509 + GenerateurMessages + MongoDao,
+// {
+//     debug!("gestionnaire.consommer_evenement Consommer evenement : {:?}", &m.message);
+//
+//     // Autorisation : doit etre de niveau 3.protege ou 4.secure
+//     match m.verifier_exchanges(vec![Securite::L3Protege, Securite::L4Secure]) {
+//         true => Ok(()),
+//         false => Err(format!("gestionnaire.consommer_evenement: Evenement invalide (pas 3.protege ou 4.secure)")),
+//     }?;
+//
+//     match m.action.as_str() {
+//         EVENEMENT_POMPE_POSTE => {
+//             evenement_pompe_poste(middleware, &m).await?
+//         }
+//         _ => Err(format!("gestionnaire.consommer_transaction: Mauvais type d'action pour une transaction : {}", m.action))?,
+//     }
+// }
 
 // pub async fn emettre_evenement_maj_fichier<M, S>(middleware: &M, tuuid: S) -> Result<(), String>
 // where
