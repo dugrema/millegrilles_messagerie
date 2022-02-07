@@ -6,6 +6,7 @@ mod requetes;
 mod transactions;
 mod pompe_messages;
 mod evenements;
+mod message_structs;
 
 use crate::domaines_messagerie::run;
 

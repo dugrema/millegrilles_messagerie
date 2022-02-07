@@ -20,9 +20,10 @@ use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
-use crate::gestionnaire::GestionnaireMessagerie;
 
 use crate::constantes::*;
+use crate::gestionnaire::GestionnaireMessagerie;
+use crate::message_structs::*;
 use crate::pompe_messages::emettre_evenement_pompe;
 
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -193,16 +194,6 @@ async fn emettre_requete_resolve<M>(gestionnaire: &GestionnaireMessagerie, middl
     Ok(())
 }
 
-#[derive(Clone, Debug, Serialize)]
-struct RequeteTopologieResolveIdmg {
-    dns: Option<Vec<String>>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct ReponseTopologieResolveIdmg {
-    dns: Option<HashMap<String, String>>
-}
-
 async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, reponse: &ReponseTopologieResolveIdmg)
     -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao
@@ -237,22 +228,3 @@ async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, mid
     Ok(())
 }
 
-#[derive(Clone, Debug, Deserialize)]
-struct DocOutgointProcessing {
-    uuid_transaction: String,
-    destinataires_dns: Option<Vec<DocDestinataire>>,
-    user_id: Option<String>,
-    dns_unresolved: Option<Vec<String>>,
-    idmgs_unprocessed: Option<Vec<String>>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct DocDestinataire {
-    destinataire: String,
-    user: Option<String>,
-    dns: Option<String>,
-    idmg: Option<String>,
-    processed: Option<bool>,
-    result: Option<i32>,
-    retry: Option<u32>,
-}
