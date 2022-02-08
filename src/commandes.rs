@@ -23,6 +23,7 @@ use millegrilles_common_rust::verificateur::VerificateurMessage;
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
 use crate::transactions::*;
+use crate::message_structs::*;
 
 pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -51,6 +52,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
     match m.action.as_str() {
         // Commandes standard
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
+        TRANSACTION_RECEVOIR => commande_recevoir(middleware, m, gestionnaire).await,
 
         // COMMANDE_INDEXER => commande_reindexer(middleware, m, gestionnaire).await,
 
@@ -98,13 +100,41 @@ async fn commande_poster<M>(middleware: &M, m: MessageValideAction, gestionnaire
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
-// #[derive(Clone, Debug, Deserialize)]
-// struct CommandeIndexerContenu {
-//     reset: Option<bool>,
-//     limit: Option<i64>,
-// }
+async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commandes.commande_recevoir Consommer commande : {:?}", & m.message);
+    let commande: CommandeRecevoirPost = m.message.get_msg().map_contenu(None)?;
+    debug!("commandes.commande_recevoir Commande nouvelle versions parsed : {:?}", commande);
 
-// #[derive(Clone, Debug, Serialize)]
-// struct ReponseCommandeReindexer {
-//     tuuids: Option<Vec<String>>,
-// }
+    {
+        let version_commande = m.message.get_entete().version;
+        if version_commande != 1 {
+            Err(format!("commandes.commande_recevoir: Version non supportee {:?}", version_commande))?
+        }
+    }
+
+    let user_id = m.get_user_id();
+    match m.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
+        true => {
+            // Compte systeme
+        },
+        false => {
+            // Autorisation: Action usager avec compte prive ou delegation globale
+            let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+            if role_prive && user_id.is_some() {
+                // Ok
+            } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+                // Ok
+            } else {
+                Err(format!("commandes.commande_recevoir: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+            }
+        }
+    }
+
+    // TODO Valider message
+
+    // Traiter la transaction
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}

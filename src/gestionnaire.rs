@@ -177,6 +177,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     let commandes_privees: Vec<&str> = vec![
         TRANSACTION_POSTER,
+        TRANSACTION_RECEVOIR,
 
         // COMMANDE_INDEXER,
     ];

@@ -35,20 +35,13 @@ where
     // Autorisation
     match m.action.as_str() {
         // 4.secure - doivent etre validees par une commande
-        TRANSACTION_POSTER => {
+        TRANSACTION_POSTER |
+        TRANSACTION_RECEVOIR => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Trigger cedule autorisation invalide (pas 4.secure)"))
             }?;
         },
-        // 3.protege ou 4.secure
-        // TRANSACTION_ASSOCIER_CONVERSIONS |
-        // TRANSACTION_ASSOCIER_VIDEO => {
-        //     match m.verifier_exchanges(vec![Securite::L3Protege, Securite::L4Secure]) {
-        //         true => Ok(()),
-        //         false => Err(format!("transactions.consommer_transaction: Trigger cedule autorisation invalide (pas 4.secure)")),
-        //     }?;
-        // },
         _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", m.action))?,
     }
 
@@ -64,20 +57,9 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
 {
     match transaction.get_action() {
         TRANSACTION_POSTER => transaction_poster(gestionnaire, middleware, transaction).await,
+        TRANSACTION_RECEVOIR => transaction_recevoir(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransactionPoster {
-    from: String,
-    to: Vec<String>,
-    cc: Option<Vec<String>>,
-    bcc: Option<Vec<String>>,
-    reply_to: Option<String>,
-    subject: Option<String>,
-    content: Option<String>,
-    attachments: Option<Vec<String>>,
 }
 
 async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
@@ -146,7 +128,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         }
     }
 
-    // Inserer document de traitement dans outgoint_processing
+    // Inserer document de traitement dans outgoing_processing
     {
         let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
         match collection.insert_one(doc_processing, None).await {
@@ -228,3 +210,25 @@ async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, mid
     Ok(())
 }
 
+async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao,
+        T: Transaction
+{
+    debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
+
+    let transaction_recevoir: TransactionRecevoir = match transaction.clone().convertir::<TransactionRecevoir>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
+    };
+
+    let message: TransactionRecevoir = match transaction.convertir() {
+        Ok(m) => Ok(m),
+        Err(e) => Err(format!("transactions.transaction_recevoir Erreur conversion message en TransactionRecevoir : {:?}", e))
+    }?;
+
+    // Conserver message pour chaque destinataire local
+
+
+    middleware.reponse_ok()
+}

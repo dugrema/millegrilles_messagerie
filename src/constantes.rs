@@ -20,6 +20,7 @@ pub const NOM_Q_MESSAGE_POMPE: &str = "Messagerie/messagePompe";
 // pub const REQUETE_ACTIVITE_RECENTE: &str = "activiteRecente";
 
 pub const TRANSACTION_POSTER: &str = "poster";
+pub const TRANSACTION_RECEVOIR: &str = "recevoir";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 

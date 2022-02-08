@@ -9,14 +9,15 @@ use log::{debug, error, info, warn};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::ValidateurX509;
-use millegrilles_common_rust::constantes::Securite;
+use millegrilles_common_rust::constantes::{Securite, SECURITE_2_PRIVE};
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::messages_generiques::MessageCedule;
-use millegrilles_common_rust::mongo_dao::MongoDao;
+use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
-use millegrilles_common_rust::serde_json::json;
+use millegrilles_common_rust::serde_json;
+use millegrilles_common_rust::serde_json::{json, Map, Value};
 use millegrilles_common_rust::tokio_stream::StreamExt;
 
 use crate::constantes::*;
@@ -107,13 +108,19 @@ impl PompeMessages {
     {
         let idmgs = get_batch_idmgs(middleware, trigger).await?;
 
+        for idmg in idmgs {
+            let batch = get_batch_messages(middleware, idmg.as_str()).await?;
+            debug!("Traiter batch messages : {:?}", batch);
+            traiter_batch_messages(middleware, idmg.as_str(), &batch).await?;
+        }
+
         Ok(())
     }
 }
 
 async fn get_batch_idmgs<M>(middleware: &M, trigger: &MessagePompe)
     -> Result<Vec<String>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao
+    where M: MongoDao
 {
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
 
@@ -154,9 +161,153 @@ async fn get_batch_idmgs<M>(middleware: &M, trigger: &MessagePompe)
 }
 
 // Retourne une batch de messages non traites pour un idmg.
-// async fn get_batch_messages<M>(middleware: &M, idmg: String)
-//     -> Result<Vec<DocOutgointProcessing>, Box<dyn Error>>
-//     where M: GenerateurMessages + MongoDao
-// {
-//
-// }
+async fn get_batch_messages<M>(middleware: &M, idmg: &str)
+    -> Result<Vec<DocOutgointProcessing>, Box<dyn Error>>
+    where M: MongoDao
+{
+    debug!("pompe_messages.get_batch_messages Idmg {}", idmg);
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+
+    let filtre = doc! { "idmgs_unprocessed": {"$all": [idmg]} };
+    let sort = doc! { "last_processed": 1 };
+    let options = FindOptions::builder()
+        .sort(sort)
+        .limit(5)
+        .build();
+
+    let mut curseur = collection.find(filtre, Some(options)).await?;
+    let mut resultat: Vec<DocOutgointProcessing> = Vec::new();
+    while let Some(r) = curseur.next().await {
+        let doc = r?;
+        // debug!("Result data : {:?}", doc);
+        let message_outgoing: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
+        resultat.push(message_outgoing);
+    }
+
+    // debug!("pompe_messages.get_batch_messages Resultat : {:?}", resultat);
+
+    Ok(resultat)
+}
+
+async fn traiter_batch_messages<M>(middleware: &M, idmg_traitement: &str, messages_outgoing: &Vec<DocOutgointProcessing>)
+    -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    debug!("pompe_messages.traiter_batch_messages Traiter batch {} messages", messages_outgoing.len());
+
+    let idmg_local = middleware.get_enveloppe_privee().idmg()?;
+    if idmg_local == idmg_traitement {
+        debug!("Traitement messages pour idmg local : {}", idmg_traitement);
+        for message in messages_outgoing {
+            pousser_message_local(middleware, message).await?;
+        }
+    } else {
+        Err(format!("MilleGrille tierce non supportee (IDMG: {})", idmg_traitement))?
+    };
+
+    Ok(())
+}
+
+/// Pousse des messages locaux. Transfere le contenu dans la reception de chaque destinataire.
+async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    debug!("Pousser message : {:?}", message);
+    let uuid_transaction = message.uuid_transaction.as_str();
+
+    // Mapping idmg local
+    let idmg_local = middleware.get_enveloppe_privee().idmg()?;
+    let mapping: &DocMappingIdmg = if let Some(m) = message.idmgs_mapping.as_ref() {
+        match m.get(idmg_local.as_str()) {
+            Some(m) => Ok(m),
+            None => Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
+        }
+    } else {
+        Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
+    }?;
+
+    let mut destinataires = Vec::new();
+
+    // Identifier destinataires qui correspondent via DNS
+    if let Some(mapping_dns) = mapping.dns.as_ref() {
+        if let Some(d) = message.destinataires.as_ref() {
+            for dest in d {
+                if let Some(dns_destinataire) = dest.dns.as_ref() {
+                    if mapping_dns.contains(dns_destinataire) {
+                        if let Some(u) = dest.user.as_ref() {
+                            destinataires.push(u.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    debug!("Mapping destinataires pour idmg {}, message {} : {:?}", idmg_local, uuid_transaction, destinataires);
+
+    // Charger transaction message
+    let doc = {
+        let collection_transactions = middleware.get_collection(NOM_COLLECTION_TRANSACTIONS)?;
+        let filtre_transaction = doc! { "en-tete.uuid_transaction": uuid_transaction };
+        let doc = collection_transactions.find_one(filtre_transaction, None).await?;
+        if let Some(d) = doc {
+            d
+        } else {
+            Err(format!("pompe_messages.pousser_message_local Transaction pour message {} introuvable", uuid_transaction))?
+        }
+    };
+
+    debug!("Message a transmettre : {:?}", doc);
+    let mut val = match serde_json::to_value(doc) {
+        Ok(v) => match v.as_object() {
+            Some(o) => o.to_owned(),
+            None => Err(format!("Erreur sauvegarde transaction, mauvais type objet JSON"))?,
+        },
+        Err(e) => Err(format!("Erreur sauvegarde transaction, conversion : {:?}", e))?,
+    };
+
+    let mut keys_to_remove = Vec::new();
+    for key in val.keys() {
+        if key.starts_with("_") && key != "_signature" && key != "_bcc" {
+            keys_to_remove.push(key.to_owned());
+        }
+    }
+    for key in keys_to_remove {
+        val.remove(key.as_str());
+    }
+    debug!("Message mappe : {:?}", val);
+
+    // Emettre commande recevoir
+    let commande = CommandeRecevoirPost{ message: val, destinataires: destinataires.clone(), };
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_RECEVOIR)
+        .exchanges(vec![Securite::L2Prive])
+        .build();
+
+    // TODO - Mettre pompe sur sa propre Q, blocking true
+    middleware.transmettre_commande(routage, &commande, false).await?;
+    // debug!("Reponse commande message local : {:?}", reponse);
+
+    // TODO - Fix verif confirmation. Ici on assume un succes
+    {
+        // Marquer process comme succes pour reception sur chaque usager
+        let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+        let filtre_outgoing = doc! { "uuid_transaction": uuid_transaction };
+        let array_filters = vec! [
+            doc! {"dest.user": {"$in": destinataires }}
+        ];
+        let options = UpdateOptions::builder()
+            .array_filters(array_filters)
+            .build();
+        let ops = doc! {
+            "$pull": {"idmgs_unprocessed": idmg_local},
+            "$set": {
+                "destinataires.$[dest].processed": true,
+                "destinataires.$[dest].result": 201,
+            },
+            "$currentDate": {"last_processed": true}
+        };
+        collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await?;
+    }
+
+    Ok(())
+}
