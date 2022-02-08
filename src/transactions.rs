@@ -10,7 +10,7 @@ use millegrilles_common_rust::bson::{Array, Bson};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_transaction_recue};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
@@ -213,7 +213,7 @@ async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, mid
 
 async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
     where
-        M: GenerateurMessages + MongoDao,
+        M: GenerateurMessages + MongoDao + ValidateurX509,
         T: Transaction
 {
     debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
@@ -226,6 +226,16 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
 
     // Conserver message pour chaque destinataires locaux
     let message_recu = transaction_recevoir.message;
+    let fingerprint_usager = match message_recu.get("en-tete") {
+        Some(e) => {
+            let val: Entete = match serde_json::from_value(e.to_owned()) {
+                Ok(v) => v,
+                Err(e) => Err(format!("transaction_recevoir Message {} avec en-tete invalide : {:?}", uuid_transaction, e))?,
+            };
+            val.fingerprint_certificat
+        },
+        None => Err(format!("transaction_recevoir Message {} sans en-tete", uuid_transaction))?
+    };
     let destinataires = transaction_recevoir.destinataires;
 
     // Resolve destinataires nom_usager => user_id
@@ -253,6 +263,15 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         Ok(m) => m,
         Err(e) => Err(format!("transactions.transaction_recevoir Erreur insertion message {} : {:?}", uuid_transaction, e))?
     };
+    let certificat_usager = middleware.get_certificat(fingerprint_usager.as_str()).await;
+    let certificat_usager_pem: Vec<String> = match certificat_usager {
+        Some(c) => {
+            let fp_certs = c.get_pem_vec();
+            fp_certs.into_iter().map(|c| c.pem).collect()
+        },
+        None => Err(format!("transactions.transaction_recevoir Erreur insertion message {}, certificat {} introuvable", uuid_transaction, fingerprint_usager))?
+    };
+
     for (nom_usager, user_id) in &reponse_mappee.usagers {
         match user_id {
             Some(u) => {
@@ -263,6 +282,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     "uuid_transaction": &uuid_transaction,
                     "lu": false,
                     "date_reception": chrono::Utc::now(),
+                    "certificat_message": &certificat_usager_pem,
                     "message": &message_recu_bson,
                 };
                 if let Err(e) = collection.insert_one(doc_user_reception, None).await {
