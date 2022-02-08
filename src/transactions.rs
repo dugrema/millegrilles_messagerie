@@ -12,10 +12,11 @@ use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
-use millegrilles_common_rust::middleware::sauvegarder_transaction_recue;
+use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_transaction_recue};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
 use millegrilles_common_rust::mongodb::options::UpdateOptions;
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
+use millegrilles_common_rust::redis::ToRedisArgs;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::transactions::Transaction;
@@ -216,6 +217,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         T: Transaction
 {
     debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
+    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
 
     let transaction_recevoir: CommandeRecevoirPost = match transaction.clone().convertir::<CommandeRecevoirPost>() {
         Ok(t) => t,
@@ -246,12 +248,26 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         }
     };
 
-
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let message_recu_bson = match map_serializable_to_bson(&message_recu) {
+        Ok(m) => m,
+        Err(e) => Err(format!("transactions.transaction_recevoir Erreur insertion message {} : {:?}", uuid_transaction, e))?
+    };
     for (nom_usager, user_id) in &reponse_mappee.usagers {
         match user_id {
             Some(u) => {
                 // Sauvegarder message pour l'usager
                 debug!("transaction_recevoir Sauvegarder message pour usager : {}", u);
+                let doc_user_reception = doc! {
+                    "user_id": u,
+                    "uuid_transaction": &uuid_transaction,
+                    "lu": false,
+                    "date_reception": chrono::Utc::now(),
+                    "message": &message_recu_bson,
+                };
+                if let Err(e) = collection.insert_one(doc_user_reception, None).await {
+                    Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
+                }
             },
             None => warn!("transaction_recevoir Nom usager local inconnu : {}", nom_usager)
         }
