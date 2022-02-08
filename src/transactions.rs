@@ -10,7 +10,7 @@ use millegrilles_common_rust::bson::{Array, Bson};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::sauvegarder_transaction_recue;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
@@ -217,18 +217,45 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
 {
     debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
 
-    let transaction_recevoir: TransactionRecevoir = match transaction.clone().convertir::<TransactionRecevoir>() {
+    let transaction_recevoir: CommandeRecevoirPost = match transaction.clone().convertir::<CommandeRecevoirPost>() {
         Ok(t) => t,
         Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
     };
 
-    let message: TransactionRecevoir = match transaction.convertir() {
-        Ok(m) => Ok(m),
-        Err(e) => Err(format!("transactions.transaction_recevoir Erreur conversion message en TransactionRecevoir : {:?}", e))
-    }?;
+    // Conserver message pour chaque destinataires locaux
+    let message_recu = transaction_recevoir.message;
+    let destinataires = transaction_recevoir.destinataires;
 
-    // Conserver message pour chaque destinataire local
+    // Resolve destinataires nom_usager => user_id
+    let reponse_mappee: ReponseUseridParNomUsager = {
+        let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        let requete = json!({"noms_usagers": &destinataires});
+        debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
+        let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
+        debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
+        match reponse {
+            TypeMessage::Valide(m) => {
+                match m.message.parsed.map_contenu(None) {
+                    Ok(m) => m,
+                    Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
+                }
+            },
+            _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
+        }
+    };
 
+
+    for (nom_usager, user_id) in &reponse_mappee.usagers {
+        match user_id {
+            Some(u) => {
+                // Sauvegarder message pour l'usager
+                debug!("transaction_recevoir Sauvegarder message pour usager : {}", u);
+            },
+            None => warn!("transaction_recevoir Nom usager local inconnu : {}", nom_usager)
+        }
+    }
 
     middleware.reponse_ok()
 }

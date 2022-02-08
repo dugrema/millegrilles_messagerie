@@ -60,3 +60,8 @@ pub struct CommandeRecevoirPost {
     pub message: Map<String, Value>,
     pub destinataires: Vec<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseUseridParNomUsager {
+    pub usagers: HashMap<String, Option<String>>,
+}

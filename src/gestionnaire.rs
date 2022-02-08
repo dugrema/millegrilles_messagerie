@@ -265,20 +265,20 @@ pub fn preparer_queues() -> Vec<QueueType> {
 pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), String>
     where M: MongoDao
 {
-    // // Index fuuids pour fichiers (liste par tuuid)
-    // let options_unique_fuuid = IndexOptions {
-    //     nom_index: Some(format!("fichiers_fuuid")),
-    //     unique: false
-    // };
-    // let champs_index_fuuid = vec!(
-    //     ChampIndex {nom_champ: String::from("fuuids"), direction: 1},
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_FICHIERS_REP,
-    //     champs_index_fuuid,
-    //     Some(options_unique_fuuid)
-    // ).await?;
-    //
+    // Index uuid_transaction pour messages_outgoing
+    let options_unique_outgoing_transactions_uuid_transaction = IndexOptions {
+        nom_index: Some(String::from("uuid_transaction")),
+        unique: true
+    };
+    let champs_index_outgoing_transactions_uuid_transactions = vec!(
+        ChampIndex {nom_champ: String::from("uuid_transaction"), direction: 1},
+    );
+    middleware.create_index(
+        NOM_COLLECTION_OUTGOING_PROCESSING,
+        champs_index_outgoing_transactions_uuid_transactions,
+        Some(options_unique_outgoing_transactions_uuid_transaction)
+    ).await?;
+
     // // Index cuuids pour collections de fichiers (liste par cuuid)
     // let options_unique_cuuid = IndexOptions {
     //     nom_index: Some(format!("fichiers_cuuid")),

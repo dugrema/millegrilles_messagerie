@@ -36,7 +36,8 @@ pub async fn traiter_cedule<M>(middleware: &M, trigger: &MessageCedule)
     Ok(())
 }
 
-pub async fn evenement_pompe_poste<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: &MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+pub async fn evenement_pompe_poste<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: &MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where
         M: ValidateurX509 + GenerateurMessages + MongoDao,
 {
@@ -289,6 +290,8 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
 
     // TODO - Fix verif confirmation. Ici on assume un succes
     {
+        debug!("Marquer idmg {} comme pousse pour message {}", idmg_local, uuid_transaction);
+
         // Marquer process comme succes pour reception sur chaque usager
         let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
         let filtre_outgoing = doc! { "uuid_transaction": uuid_transaction };
@@ -299,14 +302,16 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
             .array_filters(array_filters)
             .build();
         let ops = doc! {
-            "$pull": {"idmgs_unprocessed": idmg_local},
+            "$pull": {"idmgs_unprocessed": &idmg_local},
             "$set": {
                 "destinataires.$[dest].processed": true,
                 "destinataires.$[dest].result": 201,
             },
             "$currentDate": {"last_processed": true}
         };
-        collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await?;
+
+        let resultat = collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await?;
+        debug!("Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg_local, uuid_transaction, resultat);
     }
 
     Ok(())
