@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use millegrilles_common_rust::chrono;
+use millegrilles_common_rust::chrono::Utc;
+use millegrilles_common_rust::formatteur_messages::DateEpochSeconds;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
 
@@ -50,6 +53,7 @@ pub struct TransactionPoster {
     // pub content: Option<String>,
     pub attachments: Option<Vec<String>>,
     pub fingerprint_certificat: String,
+    pub hachage_bytes: String,
 }
 
 impl TransactionPoster {
@@ -83,4 +87,22 @@ pub struct CommandeRecevoirPost {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReponseUseridParNomUsager {
     pub usagers: HashMap<String, Option<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequeteGetMessages {
+    pub limit: Option<i64>,
+    pub skip: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageIncoming {
+    pub uuid_transaction: String,
+    pub lu: bool,
+    pub supprime: bool,
+    pub date_reception: DateEpochSeconds,
+    pub message_chiffre: String,
+    pub hachage_bytes: String,
+    pub certificat_message: Vec<String>,
+    pub attachments: Option<Vec<String>>,
 }

@@ -17,7 +17,7 @@ pub const NOM_Q_VOLATILS: &str = "Messagerie/volatils";
 pub const NOM_Q_TRIGGERS: &str = "Messagerie/triggers";
 pub const NOM_Q_MESSAGE_POMPE: &str = "Messagerie/messagePompe";
 
-// pub const REQUETE_ACTIVITE_RECENTE: &str = "activiteRecente";
+pub const REQUETE_GET_MESSAGES: &str = "getMessages";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";
@@ -43,6 +43,8 @@ pub const CHAMP_FLAG_INDEXE: &str = "flag_indexe";
 pub const CHAMP_FLAG_MEDIA: &str = "flag_media";
 pub const CHAMP_FLAG_MEDIA_TRAITE: &str = "flag_media_traite";
 pub const CHAMP_USER_ID: &str = "user_id";
+pub const CHAMP_DATE_RECEPTION: &str = "date_reception";
+pub const CHAMP_FLAG_LU: &str = "lu";
 
 // #[derive(Clone, Debug, Serialize, Deserialize)]
 // pub struct FichierDetail {

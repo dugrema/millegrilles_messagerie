@@ -228,6 +228,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     // Conserver message pour chaque destinataires locaux
     let message_enveloppe = transaction_recevoir.message;
     let message_chiffre = message_enveloppe.message_chiffre;
+    let hachage_bytes = message_enveloppe.hachage_bytes;
     let fingerprint_usager = message_enveloppe.fingerprint_certificat;
     let destinataires = transaction_recevoir.destinataires;
     let attachments = message_enveloppe.attachments;
@@ -267,6 +268,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     };
 
     for (nom_usager, user_id) in &reponse_mappee.usagers {
+        let now: Bson = DateEpochSeconds::now().into();
         match user_id {
             Some(u) => {
                 // Sauvegarder message pour l'usager
@@ -275,9 +277,12 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     "user_id": u,
                     "uuid_transaction": &uuid_transaction,
                     "lu": false,
-                    "date_reception": chrono::Utc::now(),
+                    CHAMP_SUPPRIME: false,
+                    "date_reception": now,
+                    "date_ouverture": None::<&str>,
                     "certificat_message": &certificat_usager_pem,
                     "message_chiffre": &message_chiffre,
+                    "hachage_bytes": &hachage_bytes,
                     "attachments": &attachments,
                 };
                 if let Err(e) = collection.insert_one(doc_user_reception, None).await {

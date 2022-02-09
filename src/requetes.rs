@@ -26,6 +26,7 @@ use millegrilles_common_rust::verificateur::VerificateurMessage;
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
 use crate::transactions::*;
+use crate::message_structs::*;
 
 pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, gestionnaire: &GestionnaireMessagerie) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
@@ -49,7 +50,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
     match message.domaine.as_str() {
         DOMAINE_NOM => {
             match message.action.as_str() {
-                // REQUETE_ACTIVITE_RECENTE => requete_activite_recente(middleware, message, gestionnaire).await,
+                REQUETE_GET_MESSAGES => requete_get_messages(middleware, message, gestionnaire).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -63,56 +64,56 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
     }
 }
 
-// async fn requete_activite_recente<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
-//     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-//     where M: GenerateurMessages + MongoDao + VerificateurMessage,
-// {
-//     debug!("requete_activite_recente Message : {:?}", & m.message);
-//     let requete: RequetePlusRecente = m.message.get_msg().map_contenu(None)?;
-//     debug!("requete_activite_recente cle parsed : {:?}", requete);
-//
-//     let user_id = m.get_user_id();
-//     if user_id.is_none() {
-//         return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
-//     }
-//
-//     let limit = match requete.limit {
-//         Some(l) => l,
-//         None => 100
-//     };
-//     let skip = match requete.skip {
-//         Some(s) => s,
-//         None => 0
-//     };
-//
-//     let opts = FindOptions::builder()
-//         .hint(Hint::Name(String::from("fichiers_activite_recente")))
-//         .sort(doc!{CHAMP_SUPPRIME: -1, CHAMP_MODIFICATION: -1, CHAMP_TUUID: 1})
-//         .limit(limit)
-//         .skip(skip)
-//         .build();
-//     let filtre = doc!{CHAMP_SUPPRIME: false, CHAMP_USER_ID: user_id};
-//
-//     let collection = middleware.get_collection(NOM_COLLECTION_FICHIERS_REP)?;
-//     let mut curseur = collection.find(filtre, opts).await?;
-//     let fichiers_mappes = mapper_fichiers_curseur(curseur).await?;
-//
-//     let reponse = json!({ "fichiers": fichiers_mappes });
-//     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
-// }
+async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_get_messages Message : {:?}", & m.message);
+    let requete: RequeteGetMessages = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_messages cle parsed : {:?}", requete);
 
-// async fn mapper_fichiers_curseur(mut curseur: Cursor<Document>) -> Result<Value, Box<dyn Error>> {
-//     let mut fichiers_mappes = Vec::new();
-//
-//     while let Some(fresult) = curseur.next().await {
-//         let fcurseur = fresult?;
-//         let fichier_db = mapper_fichier_db(fcurseur)?;
-//         fichiers_mappes.push(fichier_db);
-//     }
-//
-//     // Convertir fichiers en Value (serde pour reponse json)
-//     Ok(serde_json::to_value(fichiers_mappes)?)
-// }
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+    };
+
+    let limit = match requete.limit {
+        Some(l) => l,
+        None => 100
+    };
+    let skip = match requete.skip {
+        Some(s) => s,
+        None => 0
+    };
+
+    let opts = FindOptions::builder()
+        // .hint(Hint::Name(String::from("fichiers_activite_recente")))
+        .sort(doc!{CHAMP_DATE_RECEPTION: -1})
+        .limit(limit)
+        .skip(skip)
+        .build();
+    let filtre = doc!{CHAMP_SUPPRIME: false, CHAMP_USER_ID: user_id};
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let mut curseur = collection.find(filtre, opts).await?;
+    let fichiers_mappes = mapper_messages_curseur(curseur).await?;
+
+    let reponse = json!({ "messages": fichiers_mappes });
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+}
+
+async fn mapper_messages_curseur(mut curseur: Cursor<Document>) -> Result<Value, Box<dyn Error>> {
+    let mut messages_mappes = Vec::new();
+
+    while let Some(fresult) = curseur.next().await {
+        let fcurseur = fresult?;
+        let message_db = mapper_message_db(fcurseur)?;
+        messages_mappes.push(message_db);
+    }
+
+    // Convertir fichiers en Value (serde pour reponse json)
+    Ok(serde_json::to_value(messages_mappes)?)
+}
 
 // #[derive(Clone, Debug, Serialize, Deserialize)]
 // struct RequetePlusRecente {
@@ -120,12 +121,8 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
 //     skip: Option<u64>,
 // }
 
-// pub fn mapper_fichier_db(fichier: Document) -> Result<FichierDetail, Box<dyn Error>> {
-//     let date_creation = fichier.get_datetime(CHAMP_CREATION)?.clone();
-//     let date_modification = fichier.get_datetime(CHAMP_MODIFICATION)?.clone();
-//     let mut fichier_mappe: FichierDetail = convertir_bson_deserializable(fichier)?;
-//     fichier_mappe.date_creation = Some(DateEpochSeconds::from(date_creation.to_chrono()));
-//     fichier_mappe.derniere_modification = Some(DateEpochSeconds::from(date_modification.to_chrono()));
-//     debug!("Fichier mappe : {:?}", fichier_mappe);
-//     Ok(fichier_mappe)
-// }
+pub fn mapper_message_db(fichier: Document) -> Result<MessageIncoming, Box<dyn Error>> {
+    let mut message_mappe: MessageIncoming = convertir_bson_deserializable(fichier)?;
+    debug!("Message mappe : {:?}", message_mappe);
+    Ok(message_mappe)
+}
