@@ -41,18 +41,21 @@ pub struct DocDestinataire {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionPoster {
-    pub from: String,
+    pub message_chiffre: String,
+    // pub from: String,
     pub to: Vec<String>,
-    pub cc: Option<Vec<String>>,
-    pub reply_to: Option<String>,
-    pub subject: Option<String>,
-    pub content: Option<String>,
+    pub bcc: Option<Vec<String>>,
+    // pub reply_to: Option<String>,
+    // pub subject: Option<String>,
+    // pub content: Option<String>,
     pub attachments: Option<Vec<String>>,
+    pub fingerprint_certificat: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionRecevoir {
     pub message: TransactionPoster,
+    pub destinataires: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -219,24 +219,17 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
     let uuid_transaction = transaction.get_uuid_transaction().to_owned();
 
-    let transaction_recevoir: CommandeRecevoirPost = match transaction.clone().convertir::<CommandeRecevoirPost>() {
+    let transaction_recevoir: TransactionRecevoir = match transaction.clone().convertir::<TransactionRecevoir>() {
         Ok(t) => t,
         Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
     };
 
     // Conserver message pour chaque destinataires locaux
-    let message_recu = transaction_recevoir.message;
-    let fingerprint_usager = match message_recu.get("en-tete") {
-        Some(e) => {
-            let val: Entete = match serde_json::from_value(e.to_owned()) {
-                Ok(v) => v,
-                Err(e) => Err(format!("transaction_recevoir Message {} avec en-tete invalide : {:?}", uuid_transaction, e))?,
-            };
-            val.fingerprint_certificat
-        },
-        None => Err(format!("transaction_recevoir Message {} sans en-tete", uuid_transaction))?
-    };
+    let message_enveloppe = transaction_recevoir.message;
+    let message_chiffre = message_enveloppe.message_chiffre;
+    let fingerprint_usager = message_enveloppe.fingerprint_certificat;
     let destinataires = transaction_recevoir.destinataires;
+    let attachments = message_enveloppe.attachments;
 
     // Resolve destinataires nom_usager => user_id
     let reponse_mappee: ReponseUseridParNomUsager = {
@@ -259,10 +252,10 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     };
 
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    let message_recu_bson = match map_serializable_to_bson(&message_recu) {
-        Ok(m) => m,
-        Err(e) => Err(format!("transactions.transaction_recevoir Erreur insertion message {} : {:?}", uuid_transaction, e))?
-    };
+    // let message_recu_bson = match map_serializable_to_bson(&message_recu) {
+    //     Ok(m) => m,
+    //     Err(e) => Err(format!("transactions.transaction_recevoir Erreur insertion message {} : {:?}", uuid_transaction, e))?
+    // };
     let certificat_usager = middleware.get_certificat(fingerprint_usager.as_str()).await;
     let certificat_usager_pem: Vec<String> = match certificat_usager {
         Some(c) => {
@@ -283,7 +276,8 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     "lu": false,
                     "date_reception": chrono::Utc::now(),
                     "certificat_message": &certificat_usager_pem,
-                    "message": &message_recu_bson,
+                    "message_chiffre": &message_chiffre,
+                    "attachments": &attachments,
                 };
                 if let Err(e) = collection.insert_one(doc_user_reception, None).await {
                     Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
