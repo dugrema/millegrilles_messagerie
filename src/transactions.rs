@@ -90,7 +90,8 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
 
     let mut dns_adresses: HashSet<String> = HashSet::new();
     let mut destinataires = Array::new();
-    for dest in &transaction_poster.to {
+    let liste_destinataires = transaction_poster.get_destinataires();
+    for dest in liste_destinataires.into_iter() {
         let mut dest_split = dest.split("/");
         let mut user: &str = dest_split.next().expect("user");
         if user.starts_with("@") {
@@ -99,7 +100,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         let dns_addr = dest_split.next().expect("dns_addr");
         dns_adresses.insert(dns_addr.into());
         let flags = doc! {
-            "destinataire": dest,
+            "destinataire": &dest,
             "user": user,
             "dns": dns_addr,
             "processed": false,

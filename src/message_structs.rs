@@ -52,6 +52,22 @@ pub struct TransactionPoster {
     pub fingerprint_certificat: String,
 }
 
+impl TransactionPoster {
+
+    /// Retourne la liste combinee de to et bcc.
+    pub fn get_destinataires(&self) -> Vec<String> {
+        let mut destinataires = self.to.clone();
+        if let Some(bcc) = &self.bcc {
+            for dest in bcc {
+                destinataires.push(dest.to_owned());
+            }
+        }
+
+        destinataires
+    }
+
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionRecevoir {
     pub message: TransactionPoster,
