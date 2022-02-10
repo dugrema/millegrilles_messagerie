@@ -106,3 +106,15 @@ pub struct MessageIncoming {
     pub certificat_message: Vec<String>,
     pub attachments: Option<Vec<String>>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParametresGetPermissionMessages {
+    pub uuid_transaction_messages: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageIncomingProjectionPermission {
+    pub uuid_transaction: String,
+    pub hachage_bytes: String,
+    pub attachments: Option<Vec<String>>,
+}

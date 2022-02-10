@@ -170,6 +170,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
     // RK 2.prive
     let requetes_privees: Vec<&str> = vec![
         REQUETE_GET_MESSAGES,
+        REQUETE_GET_PERMISSION_MESSAGES,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});

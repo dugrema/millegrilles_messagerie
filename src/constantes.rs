@@ -18,6 +18,7 @@ pub const NOM_Q_TRIGGERS: &str = "Messagerie/triggers";
 pub const NOM_Q_MESSAGE_POMPE: &str = "Messagerie/messagePompe";
 
 pub const REQUETE_GET_MESSAGES: &str = "getMessages";
+pub const REQUETE_GET_PERMISSION_MESSAGES: &str = "getPermissionMessages";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";

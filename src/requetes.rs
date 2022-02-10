@@ -11,7 +11,7 @@ use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissi
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
-use millegrilles_common_rust::generateur_messages::GenerateurMessages;
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, filtrer_doc_id, MongoDao};
 use millegrilles_common_rust::mongodb::Cursor;
@@ -27,6 +27,8 @@ use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
 use crate::transactions::*;
 use crate::message_structs::*;
+
+const REQUETE_DECHIFFRAGE: &str = "dechiffrage";
 
 pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, gestionnaire: &GestionnaireMessagerie) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
@@ -51,6 +53,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
         DOMAINE_NOM => {
             match message.action.as_str() {
                 REQUETE_GET_MESSAGES => requete_get_messages(middleware, message, gestionnaire).await,
+                REQUETE_GET_PERMISSION_MESSAGES => requete_get_permission_messages(middleware, message).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -125,4 +128,79 @@ pub fn mapper_message_db(fichier: Document) -> Result<MessageIncoming, Box<dyn E
     let mut message_mappe: MessageIncoming = convertir_bson_deserializable(fichier)?;
     debug!("Message mappe : {:?}", message_mappe);
     Ok(message_mappe)
+}
+
+async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"err": true, "message": "user_id n'est pas dans le certificat"}), None)?))
+    };
+
+    debug!("requete_get_permission Message : {:?}", & m.message);
+    let requete: ParametresGetPermissionMessages = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_permission cle parsed : {:?}", requete);
+
+    // Utiliser certificat du message client (requete) pour demande de rechiffrage
+    let pem_rechiffrage: Vec<String> = match m.message.certificat {
+        Some(c) => {
+            let fp_certs = c.get_pem_vec();
+            fp_certs.into_iter().map(|cert| cert.pem).collect()
+        },
+        None => Err(format!(""))?
+    };
+
+    let mut filtre = doc!{
+        "user_id": &user_id,
+        "uuid_transaction": {"$in": &requete.uuid_transaction_messages},
+    };
+    let projection = doc! {"uuid_transaction": true, "attachments": true, "hachage_bytes": true};
+    let opts = FindOptions::builder().projection(projection).limit(1000).build();
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let mut curseur = collection.find(filtre, Some(opts)).await?;
+
+    let mut hachage_bytes = HashSet::new();
+    while let Some(fresult) = curseur.next().await {
+        let doc_result = fresult?;
+        let doc_message_incoming: MessageIncomingProjectionPermission = convertir_bson_deserializable(doc_result)?;
+        hachage_bytes.insert(doc_message_incoming.hachage_bytes);
+
+        if let Some(attachments) = &doc_message_incoming.attachments {
+            for h in attachments {
+                hachage_bytes.insert(h.to_owned());
+            }
+        }
+    }
+
+    // let permission = json!({
+    //     "permission_hachage_bytes": hachage_bytes,
+    //     "permission_duree": 300,
+    // });
+
+    let permission = json!({
+        "liste_hachage_bytes": hachage_bytes,
+        "certificat_rechiffrage": pem_rechiffrage,
+    });
+
+    // Emettre requete de rechiffrage de cle, reponse acheminee directement au demandeur
+    let reply_to = match m.reply_q {
+        Some(r) => r,
+        None => Err(format!("requetes.requete_get_permission Pas de reply q pour message"))?
+    };
+    let correlation_id = match m.correlation_id {
+        Some(r) => r,
+        None => Err(format!("requetes.requete_get_permission Pas de correlation_id pour message"))?
+    };
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, REQUETE_DECHIFFRAGE)
+        .exchanges(vec![Securite::L2Prive])
+        .reply_to(reply_to)
+        .correlation_id(correlation_id)
+        .blocking(false)
+        .build();
+
+    middleware.transmettre_requete(routage, &permission).await?;
+
+    Ok(Some(middleware.formatter_reponse(&permission, None)?))
 }
