@@ -95,7 +95,11 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
         .limit(limit)
         .skip(skip)
         .build();
-    let filtre = doc!{CHAMP_SUPPRIME: false, CHAMP_USER_ID: user_id};
+    let mut filtre = doc!{CHAMP_SUPPRIME: false, CHAMP_USER_ID: user_id};
+
+    if let Some(um) = requete.uuid_messages {
+        filtre.insert("uuid_transaction", doc!{"$in": um});
+    }
 
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
     let mut curseur = collection.find(filtre, opts).await?;

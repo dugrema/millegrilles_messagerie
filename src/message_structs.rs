@@ -93,6 +93,7 @@ pub struct ReponseUseridParNomUsager {
 pub struct RequeteGetMessages {
     pub limit: Option<i64>,
     pub skip: Option<u64>,
+    pub uuid_messages: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
