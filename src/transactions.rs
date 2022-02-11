@@ -93,11 +93,24 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     let liste_destinataires = transaction_poster.get_destinataires();
     for dest in liste_destinataires.into_iter() {
         let mut dest_split = dest.split("/");
-        let mut user: &str = dest_split.next().expect("user");
+        let mut user: &str = match dest_split.next() {
+            Some(u) => u,
+            None => {
+                debug!("dest invalide, on l'ignore : {}", dest);
+                continue
+            }
+        };
+        let dns_addr = match dest_split.next() {
+            Some(d) => d,
+            None => {
+                debug!("dest invalide, serveur manquant, on l'ignore : {}", dest);
+                continue
+            }
+        };
+
         if user.starts_with("@") {
             user = user.trim_start_matches("@");
         }
-        let dns_addr = dest_split.next().expect("dns_addr");
         dns_adresses.insert(dns_addr.into());
         let flags = doc! {
             "destinataire": &dest,
