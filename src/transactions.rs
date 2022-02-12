@@ -135,13 +135,13 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     };
 
     // Inserer document de message dans outgoing
-    {
-        let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
-        match collection.insert_one(doc_bson_transaction, None).await {
-            Ok(_) => (),
-            Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing {} : {:?}", uuid_transaction, e))?
-        }
-    }
+    // {
+    //     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+    //     match collection.insert_one(doc_bson_transaction, None).await {
+    //         Ok(_) => (),
+    //         Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing {} : {:?}", uuid_transaction, e))?
+    //     }
+    // }
 
     // Inserer document de traitement dans outgoing_processing
     {

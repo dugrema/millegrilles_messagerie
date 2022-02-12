@@ -83,7 +83,7 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
 
     fn get_collections_documents(&self) -> Vec<String> { vec![
         String::from(NOM_COLLECTION_INCOMING),
-        String::from(NOM_COLLECTION_OUTGOING),
+        // String::from(NOM_COLLECTION_OUTGOING),
         String::from(NOM_COLLECTION_OUTGOING_PROCESSING),
         String::from(NOM_COLLECTION_ATTACHMENTS),
         String::from(NOM_COLLECTION_ATTACHMENTS_PROCESSING),
@@ -278,6 +278,21 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         NOM_COLLECTION_OUTGOING_PROCESSING,
         champs_index_outgoing_transactions_uuid_transactions,
         Some(options_unique_outgoing_transactions_uuid_transaction)
+    ).await?;
+
+    // Index idmg_unprocessed, last_processed
+    let options_unprocessed = IndexOptions {
+        nom_index: Some(String::from("unprocessed")),
+        unique: false
+    };
+    let champs_index_unprocessed = vec!(
+        ChampIndex {nom_champ: String::from("last_processed"), direction: 1},
+        ChampIndex {nom_champ: String::from("idmgs_unprocessed"), direction: 1},
+    );
+    middleware.create_index(
+        NOM_COLLECTION_OUTGOING_PROCESSING,
+        champs_index_unprocessed,
+        Some(options_unprocessed)
     ).await?;
 
     // // Index cuuids pour collections de fichiers (liste par cuuid)

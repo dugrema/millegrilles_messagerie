@@ -5,7 +5,7 @@ use millegrilles_common_rust::serde::{Deserialize, Serialize};
 pub const DOMAINE_NOM: &str = "Messagerie";
 pub const NOM_COLLECTION_TRANSACTIONS: &str = "Messagerie";
 pub const NOM_COLLECTION_INCOMING: &str = "Messagerie/incoming";
-pub const NOM_COLLECTION_OUTGOING: &str = "Messagerie/outgoing";
+// pub const NOM_COLLECTION_OUTGOING: &str = "Messagerie/outgoing";
 pub const NOM_COLLECTION_OUTGOING_PROCESSING: &str = "Messagerie/outgoing_processing";
 pub const NOM_COLLECTION_ATTACHMENTS: &str = "Messagerie/attachments";
 pub const NOM_COLLECTION_ATTACHMENTS_PROCESSING: &str = "Messagerie/attachments_processing";
