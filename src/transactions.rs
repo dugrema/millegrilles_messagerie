@@ -39,7 +39,8 @@ where
         TRANSACTION_POSTER |
         TRANSACTION_RECEVOIR |
         TRANSACTION_INITIALISER_PROFIL |
-        TRANSACTION_MAJ_CONTACT => {
+        TRANSACTION_MAJ_CONTACT |
+        TRANSACTION_LU => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Trigger cedule autorisation invalide (pas 4.secure)"))
@@ -63,6 +64,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_RECEVOIR => transaction_recevoir(gestionnaire, middleware, transaction).await,
         TRANSACTION_INITIALISER_PROFIL => transaction_initialiser_profil(gestionnaire, middleware, transaction).await,
         TRANSACTION_MAJ_CONTACT => transaction_maj_contact(gestionnaire, middleware, transaction).await,
+        TRANSACTION_LU => transaction_lu(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
@@ -416,6 +418,60 @@ async fn transaction_maj_contact<M, T>(gestionnaire: &GestionnaireMessagerie, mi
 
     match collection.update_one(filtre, ops, options).await {
         Ok(_) => (),
+        Err(e) => Err(format!("transactions.transaction_maj_contact Erreur conversion transaction en bson : {:?}", e))?
+    };
+
+    middleware.reponse_ok()
+}
+
+async fn transaction_lu<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    debug!("transaction_maj_contact Consommer transaction : {:?}", &transaction);
+    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
+
+    let transaction_lu: CommandeLu = match transaction.clone().convertir::<CommandeLu>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.transaction_maj_contact Erreur conversion transaction : {:?}", e))?
+    };
+
+    let user_id = {
+        let certificat = match transaction.get_enveloppe_certificat() {
+            Some(c) => c,
+            None => Err(format!("transactions.transaction_initialiser_profil Certificat invalide/non charge"))?
+        };
+        match certificat.get_user_id()? {
+            Some(u) => u,
+            None => Err(format!("transactions.transaction_initialiser_profil user_id manquant du certificat"))?
+        }
+    };
+
+    let flag_lu = transaction_lu.lu;
+    let uuid_message = transaction_lu.uuid_transaction;
+    let date_lu = match flag_lu {
+        true => Some(transaction.get_estampille()),
+        false => None
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let filtre = doc! {CHAMP_USER_ID: user_id, TRANSACTION_CHAMP_UUID_TRANSACTION: uuid_message};
+    let ops = doc! {
+        "$set": {"lu": flag_lu, "lu_date": date_lu},
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    match collection.update_one(filtre, ops, None).await {
+        Ok(r) => {
+            if r.matched_count != 1 {
+                let reponse = match middleware.formatter_reponse(json!({"ok": false, "code": 500, "err": "Erreur maj flag lu"}), None) {
+                    Ok(r) => return Ok(Some(r)),
+                    Err(e) => Err(format!("transactions.transaction_maj_contact Erreur preparation reponse. Erreur de mise a jour flag lu."))?
+                };
+
+            }
+        },
         Err(e) => Err(format!("transactions.transaction_maj_contact Erreur conversion transaction en bson : {:?}", e))?
     };
 

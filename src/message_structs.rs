@@ -153,3 +153,9 @@ pub struct AdresseUserId {
     #[serde(rename = "userId")]
     pub user_id: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeLu {
+    pub uuid_transaction: String,
+    pub lu: bool,
+}

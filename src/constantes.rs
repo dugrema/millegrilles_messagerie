@@ -28,6 +28,7 @@ pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";
 pub const TRANSACTION_INITIALISER_PROFIL: &str = "initialiserProfil";
 pub const TRANSACTION_MAJ_CONTACT: &str = "majContact";
+pub const TRANSACTION_LU: &str = "lu";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 

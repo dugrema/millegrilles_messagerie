@@ -185,6 +185,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_RECEVOIR,
         TRANSACTION_INITIALISER_PROFIL,
         TRANSACTION_MAJ_CONTACT,
+        TRANSACTION_LU,
 
         // COMMANDE_INDEXER,
     ];
@@ -223,6 +224,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_RECEVOIR,
         TRANSACTION_INITIALISER_PROFIL,
         TRANSACTION_MAJ_CONTACT,
+        TRANSACTION_LU,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {
