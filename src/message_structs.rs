@@ -127,3 +127,29 @@ pub struct ParametresGetProfil {}
 pub struct TransactionInitialiserProfil {
     pub adresse: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParametresGetContacts {
+    pub limit: Option<i64>,
+    pub skip: Option<u64>,
+    pub uuid_contacts: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Contact {
+    pub adresses: Option<Vec<String>>,
+    pub blocked: Option<bool>,
+    pub trusted: Option<bool>,
+    // #[serde(rename = "userId", skip_serializing_if = "Option::is_none")]
+    // pub user_id: Option<String>,
+    pub nom: String,
+    pub uuid_contact: Option<String>,
+    pub verified: Option<HashMap<String, AdresseUserId>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AdresseUserId {
+    pub idmg: String,
+    #[serde(rename = "userId")]
+    pub user_id: String,
+}

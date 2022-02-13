@@ -55,6 +55,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_GET_MESSAGES => requete_get_messages(middleware, message, gestionnaire).await,
                 REQUETE_GET_PERMISSION_MESSAGES => requete_get_permission_messages(middleware, message).await,
                 REQUETE_GET_PROFIL => requete_get_profil(middleware, message).await,
+                REQUETE_GET_CONTACTS => requete_get_contacts(middleware, message).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -238,6 +239,61 @@ async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
         }
     }?;
 
+    debug!("get_profil Reponse {:?}", reponse);
+
+    Ok(Some(reponse))
+}
+
+async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"err": true, "code": 403, "message": "user_id n'est pas dans le certificat"}), None)?))
+    };
+
+    debug!("requete_get_contacts Message : {:?}", & m.message);
+    let requete: ParametresGetContacts = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_contacts cle parsed : {:?}", requete);
+
+    let contacts = {
+        let mut contacts = Vec::new();
+
+        let limit = match requete.limit {
+            Some(l) => l,
+            None => 100
+        };
+        let skip = match requete.skip {
+            Some(s) => s,
+            None => 0
+        };
+        let opts = FindOptions::builder()
+            // .hint(Hint::Name(String::from("fichiers_activite_recente")))
+            .sort(doc! {CHAMP_NOM_USAGER: 1, CHAMP_USER_ID: 1})
+            .limit(limit)
+            .skip(skip)
+            .build();
+
+        let collection = middleware.get_collection(NOM_COLLECTION_CONTACTS)?;
+        let filtre = doc! {CHAMP_USER_ID: user_id};
+        let mut curseur = collection.find(filtre, opts).await?;
+
+        while let Some(r) = curseur.next().await {
+            let contact_doc = r?;
+            let contact_mappe: Contact = convertir_bson_deserializable(contact_doc)?;
+            contacts.push(contact_mappe);
+        }
+
+        contacts
+    };
+
+    let reponse = {
+        let message_reponse = json!({
+            "contacts": contacts,
+        });
+        middleware.formatter_reponse(message_reponse, None)?
+    };
     debug!("get_profil Reponse {:?}", reponse);
 
     Ok(Some(reponse))

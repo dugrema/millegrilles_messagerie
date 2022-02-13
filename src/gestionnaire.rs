@@ -174,6 +174,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         REQUETE_GET_MESSAGES,
         REQUETE_GET_PERMISSION_MESSAGES,
         REQUETE_GET_PROFIL,
+        REQUETE_GET_CONTACTS,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
@@ -183,6 +184,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_POSTER,
         TRANSACTION_RECEVOIR,
         TRANSACTION_INITIALISER_PROFIL,
+        TRANSACTION_MAJ_CONTACT,
 
         // COMMANDE_INDEXER,
     ];
@@ -218,6 +220,9 @@ pub fn preparer_queues() -> Vec<QueueType> {
     let mut rk_transactions = Vec::new();
     let transactions_secures: Vec<&str> = vec![
         TRANSACTION_POSTER,
+        TRANSACTION_RECEVOIR,
+        TRANSACTION_INITIALISER_PROFIL,
+        TRANSACTION_MAJ_CONTACT,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {

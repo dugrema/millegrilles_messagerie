@@ -22,10 +22,12 @@ pub const NOM_Q_MESSAGE_POMPE: &str = "Messagerie/messagePompe";
 pub const REQUETE_GET_MESSAGES: &str = "getMessages";
 pub const REQUETE_GET_PERMISSION_MESSAGES: &str = "getPermissionMessages";
 pub const REQUETE_GET_PROFIL: &str = "getProfil";
+pub const REQUETE_GET_CONTACTS: &str = "getContacts";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";
 pub const TRANSACTION_INITIALISER_PROFIL: &str = "initialiserProfil";
+pub const TRANSACTION_MAJ_CONTACT: &str = "majContact";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 
@@ -39,6 +41,7 @@ pub const CHAMP_CUUID: &str = "cuuid";  // UUID collection de tuuids
 pub const CHAMP_CUUIDS: &str = "cuuids";  // Liste de cuuids (e.g. appartenance a plusieurs collections)
 pub const CHAMP_SUPPRIME: &str = "supprime";
 pub const CHAMP_NOM: &str = "nom";
+pub const CHAMP_NOM_USAGER: &str = "nomUsager";
 pub const CHAMP_TITRE: &str = "titre";
 pub const CHAMP_MIMETYPE: &str = "mimetype";
 pub const CHAMP_FUUID_V_COURANTE: &str = "fuuid_v_courante";
@@ -50,79 +53,3 @@ pub const CHAMP_FLAG_MEDIA_TRAITE: &str = "flag_media_traite";
 pub const CHAMP_USER_ID: &str = "user_id";
 pub const CHAMP_DATE_RECEPTION: &str = "date_reception";
 pub const CHAMP_FLAG_LU: &str = "lu";
-
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct FichierDetail {
-//     pub tuuid: String,
-//     #[serde(skip_serializing_if="Option::is_none")]
-//     pub cuuids: Option<Vec<String>>,
-//     pub nom: String,
-//     pub titre: Option<HashMap<String, String>>,
-//     pub description: Option<HashMap<String, String>>,
-//     pub securite: Option<String>,  // Collection seulement
-//     pub user_id: Option<String>,
-//
-//     pub fuuid_v_courante: Option<String>,
-//     pub version_courante: Option<DBFichierVersionDetail>,
-//     pub favoris: Option<bool>,
-//     pub date_creation: Option<DateEpochSeconds>,
-//     pub derniere_modification: Option<DateEpochSeconds>,
-//     pub supprime: Option<bool>,
-// }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct DBFichierVersionDetail {
-//     pub nom: String,
-//     pub fuuid: Option<String>,
-//     pub tuuid: Option<String>,
-//     pub mimetype: String,
-//     pub taille: usize,
-//     #[serde(rename="dateFichier")]
-//     pub date_fichier: DateEpochSeconds,
-//     #[serde(skip_serializing_if="Option::is_none")]
-//     pub height: Option<u32>,
-//     #[serde(skip_serializing_if="Option::is_none")]
-//     pub weight: Option<u32>,
-//     #[serde(skip_serializing_if="Option::is_none")]
-//     pub images: Option<HashMap<String, ImageConversion>>,
-//     #[serde(skip_serializing_if="Option::is_none")]
-//     pub anime: Option<bool>,
-//     #[serde(skip_serializing_if="Option::is_none")]
-//     pub video: Option<HashMap<String, TransactionAssocierVideo>>,
-// }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct TransactionAssocierConversions {
-//     pub tuuid: String,
-//     pub fuuid: String,
-//     pub width: Option<u32>,
-//     pub height: Option<u32>,
-//     pub mimetype: Option<String>,
-//     pub images: HashMap<String, ImageConversion>,
-//     pub anime: Option<bool>,
-// }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct TransactionAssocierVideo {
-//     pub tuuid: String,
-//     pub fuuid: String,
-//     pub width: Option<u32>,
-//     pub height: Option<u32>,
-//     pub mimetype: String,
-//     pub fuuid_video: String,
-//     pub codec: String,
-//     pub bitrate: u32,
-//     pub taille_fichier: u64,
-// }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct ImageConversion {
-//     pub hachage: String,
-//     pub width: Option<u32>,
-//     pub height: Option<u32>,
-//     pub mimetype: Option<String>,
-//     pub taille: Option<u64>,
-//     pub resolution: Option<u32>,
-//     #[serde(skip_serializing_if="Option::is_none")]
-//     pub data_chiffre: Option<String>,
-// }
