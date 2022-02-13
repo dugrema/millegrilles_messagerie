@@ -14,7 +14,7 @@ use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, Me
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_transaction_recue};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
-use millegrilles_common_rust::mongodb::options::UpdateOptions;
+use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, ReturnDocument, UpdateOptions};
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::redis::ToRedisArgs;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
@@ -37,7 +37,8 @@ where
     match m.action.as_str() {
         // 4.secure - doivent etre validees par une commande
         TRANSACTION_POSTER |
-        TRANSACTION_RECEVOIR => {
+        TRANSACTION_RECEVOIR |
+        TRANSACTION_INITIALISER_PROFIL => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Trigger cedule autorisation invalide (pas 4.secure)"))
@@ -59,6 +60,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
     match transaction.get_action() {
         TRANSACTION_POSTER => transaction_poster(gestionnaire, middleware, transaction).await,
         TRANSACTION_RECEVOIR => transaction_recevoir(gestionnaire, middleware, transaction).await,
+        TRANSACTION_INITIALISER_PROFIL => transaction_initialiser_profil(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
@@ -307,4 +309,58 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     }
 
     middleware.reponse_ok()
+}
+
+async fn transaction_initialiser_profil<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    debug!("transaction_initialiser_profil Consommer transaction : {:?}", &transaction);
+    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
+
+    let transaction_initialiser_profil: TransactionInitialiserProfil = match transaction.clone().convertir::<TransactionInitialiserProfil>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.transaction_initialiser_profil Erreur conversion transaction : {:?}", e))?
+    };
+    let adresse = transaction_initialiser_profil.adresse;
+
+    let certificat = match transaction.get_enveloppe_certificat() {
+        Some(c) => c,
+        None => Err(format!("transactions.transaction_initialiser_profil Certificat invalide/non charge"))?
+    };
+    let user_id = match certificat.get_user_id()? {
+        Some(u) => u,
+        None => Err(format!("transactions.transaction_initialiser_profil user_id manquant du certificat"))?
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    let filtre = doc! {CHAMP_USER_ID: user_id};
+    let options = FindOneAndUpdateOptions::builder()
+        .upsert(true)
+        .return_document(ReturnDocument::After)
+        .build();
+    let ops = doc! {
+        "$set": {"adresses": [adresse]},
+        "$currentDate": {CHAMP_CREATION: true, CHAMP_MODIFICATION: true},
+    };
+
+    let mut doc_profil = match collection.find_one_and_update(filtre, ops, options).await {
+        Ok(d) => match d {
+            Some(d) => d,
+            None => Err(format!("transactions.transaction_initialiser_profil user_id Erreur de creation du profil, document vide"))?
+        },
+        Err(e) => Err(format!("transactions.transaction_initialiser_profil user_id Erreur de creation du profil : {:?}", e))?
+    };
+
+    doc_profil.remove("_id");
+    doc_profil.remove(CHAMP_CREATION);
+    doc_profil.remove(CHAMP_MODIFICATION);
+
+    let reponse = match middleware.formatter_reponse(doc_profil, None) {
+        Ok(r) => r,
+        Err(e) => Err(format!("transactions.transaction_initialiser_profil user_id Erreur de creation du profil : {:?}", e))?
+    };
+
+    Ok(Some(reponse))
 }

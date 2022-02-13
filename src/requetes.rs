@@ -54,6 +54,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
             match message.action.as_str() {
                 REQUETE_GET_MESSAGES => requete_get_messages(middleware, message, gestionnaire).await,
                 REQUETE_GET_PERMISSION_MESSAGES => requete_get_permission_messages(middleware, message).await,
+                REQUETE_GET_PROFIL => requete_get_profil(middleware, message).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -207,4 +208,37 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
     middleware.transmettre_requete(routage, &permission).await?;
 
     Ok(Some(middleware.formatter_reponse(&permission, None)?))
+}
+
+async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"err": true, "code": 403, "message": "user_id n'est pas dans le certificat"}), None)?))
+    };
+
+    debug!("requete_get_profil Message : {:?}", & m.message);
+    let requete: ParametresGetProfil = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_profil cle parsed : {:?}", requete);
+
+    let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    let filtre = doc! {CHAMP_USER_ID: user_id};
+    let reponse = match collection.find_one(filtre, None).await? {
+        Some(mut d) => {
+            d.remove("_id");
+            d.remove(CHAMP_CREATION);
+            d.remove(CHAMP_MODIFICATION);
+            middleware.formatter_reponse(d, None)
+        },
+        None => {
+            let reponse_profil_introuvable = json!({"ok": false, "code": 404});
+            middleware.formatter_reponse(reponse_profil_introuvable, None)
+        }
+    }?;
+
+    debug!("get_profil Reponse {:?}", reponse);
+
+    Ok(Some(reponse))
 }

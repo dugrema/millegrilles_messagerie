@@ -119,3 +119,11 @@ pub struct MessageIncomingProjectionPermission {
     pub hachage_bytes: String,
     pub attachments: Option<Vec<String>>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParametresGetProfil {}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionInitialiserProfil {
+    pub adresse: String,
+}

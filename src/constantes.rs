@@ -9,6 +9,8 @@ pub const NOM_COLLECTION_INCOMING: &str = "Messagerie/incoming";
 pub const NOM_COLLECTION_OUTGOING_PROCESSING: &str = "Messagerie/outgoing_processing";
 pub const NOM_COLLECTION_ATTACHMENTS: &str = "Messagerie/attachments";
 pub const NOM_COLLECTION_ATTACHMENTS_PROCESSING: &str = "Messagerie/attachments_processing";
+pub const NOM_COLLECTION_PROFILS: &str = "Messagerie/profils";
+pub const NOM_COLLECTION_CONTACTS: &str = "Messagerie/contacts";
 
 pub const DOMAINE_FICHIERS_NOM: &str = "fichiers";
 
@@ -19,9 +21,11 @@ pub const NOM_Q_MESSAGE_POMPE: &str = "Messagerie/messagePompe";
 
 pub const REQUETE_GET_MESSAGES: &str = "getMessages";
 pub const REQUETE_GET_PERMISSION_MESSAGES: &str = "getPermissionMessages";
+pub const REQUETE_GET_PROFIL: &str = "getProfil";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";
+pub const TRANSACTION_INITIALISER_PROFIL: &str = "initialiserProfil";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 

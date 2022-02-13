@@ -53,6 +53,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         // Commandes standard
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
         TRANSACTION_RECEVOIR => commande_recevoir(middleware, m, gestionnaire).await,
+        TRANSACTION_INITIALISER_PROFIL => commande_initialiser_profil(middleware, m, gestionnaire).await,
 
         // COMMANDE_INDEXER => commande_reindexer(middleware, m, gestionnaire).await,
 
@@ -134,6 +135,46 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     }
 
     // TODO Valider message
+
+    // Traiter la transaction
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commandes.commande_initialiser_profil Consommer commande : {:?}", & m.message);
+    let commande: TransactionInitialiserProfil = m.message.get_msg().map_contenu(None)?;
+    debug!("commandes.commande_initialiser_profil Commande nouvelle versions parsed : {:?}", commande);
+
+    {
+        let version_commande = m.message.get_entete().version;
+        if version_commande != 1 {
+            Err(format!("commandes.commande_initialiser_profil: Version non supportee {:?}", version_commande))?
+        }
+    }
+
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
+    };
+    // Autorisation: Action usager avec compte prive ou delegation globale
+    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    if role_prive {
+        // Ok
+    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+        // Ok
+    } else {
+        Err(format!("commandes.commande_initialiser_profil: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    }
+
+    let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    let filtre = doc! {CHAMP_USER_ID: user_id};
+    let doc_profil = collection.find_one(filtre, None).await?;
+    if doc_profil.is_some() {
+        return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "profil existe deja", "code": 400}), None)?))
+    }
 
     // Traiter la transaction
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)

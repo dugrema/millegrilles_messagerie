@@ -87,6 +87,8 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
         String::from(NOM_COLLECTION_OUTGOING_PROCESSING),
         String::from(NOM_COLLECTION_ATTACHMENTS),
         String::from(NOM_COLLECTION_ATTACHMENTS_PROCESSING),
+        String::from(NOM_COLLECTION_PROFILS),
+        String::from(NOM_COLLECTION_CONTACTS),
     ] }
 
     fn get_q_transactions(&self) -> String { String::from(NOM_Q_TRANSACTIONS) }
@@ -171,6 +173,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
     let requetes_privees: Vec<&str> = vec![
         REQUETE_GET_MESSAGES,
         REQUETE_GET_PERMISSION_MESSAGES,
+        REQUETE_GET_PROFIL,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
@@ -179,6 +182,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
     let commandes_privees: Vec<&str> = vec![
         TRANSACTION_POSTER,
         TRANSACTION_RECEVOIR,
+        TRANSACTION_INITIALISER_PROFIL,
 
         // COMMANDE_INDEXER,
     ];
@@ -295,122 +299,6 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         Some(options_unprocessed)
     ).await?;
 
-    // // Index cuuids pour collections de fichiers (liste par cuuid)
-    // let options_unique_cuuid = IndexOptions {
-    //     nom_index: Some(format!("fichiers_cuuid")),
-    //     unique: false
-    // };
-    // let champs_index_cuuid = vec!(
-    //     ChampIndex {nom_champ: String::from("cuuids"), direction: 1},
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_FICHIERS_REP,
-    //     champs_index_cuuid,
-    //     Some(options_unique_cuuid)
-    // ).await?;
-    //
-    // // tuuids (serie de fichiers)
-    // let options_unique_tuuid = IndexOptions {
-    //     nom_index: Some(format!("fichiers_tuuid")),
-    //     unique: true
-    // };
-    // let champs_index_tuuid = vec!(
-    //     ChampIndex {nom_champ: String::from(CHAMP_TUUID), direction: 1},
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_FICHIERS_REP,
-    //     champs_index_tuuid,
-    //     Some(options_unique_tuuid)
-    // ).await?;
-    //
-    // // Activite recente des fichiers
-    // let options_recents = IndexOptions {
-    //     nom_index: Some(format!("fichiers_activite_recente")),
-    //     unique: true
-    // };
-    // let champs_recents = vec!(
-    //     ChampIndex {nom_champ: String::from(CHAMP_SUPPRIME), direction: -1},  // pour filtre
-    //     ChampIndex {nom_champ: String::from(CHAMP_MODIFICATION), direction: -1},
-    //     ChampIndex {nom_champ: String::from(CHAMP_TUUID), direction: 1},  // Tri stable
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_FICHIERS_REP,
-    //     champs_recents,
-    //     Some(options_recents)
-    // ).await?;
-    //
-    // // Favoris
-    // let options_favoris = IndexOptions {
-    //     nom_index: Some(format!("collections_favoris")),
-    //     unique: false
-    // };
-    // let champs_favoris = vec!(
-    //     ChampIndex {nom_champ: String::from(CHAMP_SUPPRIME), direction: -1},
-    //     ChampIndex {nom_champ: String::from(CHAMP_FAVORIS), direction: 1},
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_FICHIERS_REP,
-    //     champs_favoris,
-    //     Some(options_favoris)
-    // ).await?;
-    //
-    // // Index cuuid pour collections
-    // let options_unique_versions_fuuid = IndexOptions {
-    //     nom_index: Some(format!("versions_fuuid")),
-    //     unique: true
-    // };
-    // let champs_index_versions_fuuid = vec!(
-    //     ChampIndex {nom_champ: String::from(CHAMP_FUUID), direction: 1},
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_VERSIONS,
-    //     champs_index_versions_fuuid,
-    //     Some(options_unique_versions_fuuid)
-    // ).await?;
-    // // Index fuuids pour fichiers (liste par fsuuid)
-    // let options_unique_fuuid = IndexOptions {
-    //     nom_index: Some(format!("Versions_fuuids")),
-    //     unique: false
-    // };
-    // let champs_index_fuuid = vec!(
-    //     ChampIndex {nom_champ: String::from("fuuids"), direction: 1},
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_VERSIONS,
-    //     champs_index_fuuid,
-    //     Some(options_unique_fuuid)
-    // ).await?;
-    //
-    // // Index flag indexe
-    // let options_index_indexe = IndexOptions {
-    //     nom_index: Some(format!("flag_indexe")),
-    //     unique: false
-    // };
-    // let champs_index_indexe = vec!(
-    //     ChampIndex {nom_champ: String::from(CHAMP_FLAG_INDEXE), direction: 1},
-    //     ChampIndex {nom_champ: String::from(CHAMP_CREATION), direction: 1},
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_VERSIONS,
-    //     champs_index_indexe,
-    //     Some(options_index_indexe)
-    // ).await?;
-    //
-    // // Index flag image_traitees
-    // let options_index_media_traite = IndexOptions {
-    //     nom_index: Some(format!("flag_media_traite")),
-    //     unique: false
-    // };
-    // let champs_index_media_traite = vec!(
-    //     ChampIndex {nom_champ: String::from(CHAMP_FLAG_MEDIA_TRAITE), direction: 1},
-    //     ChampIndex {nom_champ: String::from(CHAMP_CREATION), direction: 1},
-    // );
-    // middleware.create_index(
-    //     NOM_COLLECTION_VERSIONS,
-    //     champs_index_media_traite,
-    //     Some(options_index_media_traite)
-    // ).await?;
-
     Ok(())
 }
 
@@ -446,90 +334,6 @@ pub async fn traiter_cedule<M>(gestionnaire: &GestionnaireMessagerie, middleware
 
     Ok(())
 }
-
-// async fn consommer_evenement<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-// where
-//     M: ValidateurX509 + GenerateurMessages + MongoDao,
-// {
-//     debug!("gestionnaire.consommer_evenement Consommer evenement : {:?}", &m.message);
-//
-//     // Autorisation : doit etre de niveau 3.protege ou 4.secure
-//     match m.verifier_exchanges(vec![Securite::L3Protege, Securite::L4Secure]) {
-//         true => Ok(()),
-//         false => Err(format!("gestionnaire.consommer_evenement: Evenement invalide (pas 3.protege ou 4.secure)")),
-//     }?;
-//
-//     match m.action.as_str() {
-//         EVENEMENT_POMPE_POSTE => {
-//             evenement_pompe_poste(middleware, &m).await?
-//         }
-//         _ => Err(format!("gestionnaire.consommer_transaction: Mauvais type d'action pour une transaction : {}", m.action))?,
-//     }
-// }
-
-// pub async fn emettre_evenement_maj_fichier<M, S>(middleware: &M, tuuid: S) -> Result<(), String>
-// where
-//     M: GenerateurMessages + MongoDao,
-//     S: AsRef<str>
-// {
-//     let tuuid_str = tuuid.as_ref();
-//     debug!("grosfichiers.emettre_evenement_maj_fichier Emettre evenement maj pour fichier {}", tuuid_str);
-//
-//     // Charger fichier
-//     let filtre = doc! {CHAMP_TUUID: tuuid_str};
-//     let collection = middleware.get_collection(NOM_COLLECTION_FICHIERS_REP)?;
-//     let doc_fichier = match collection.find_one(filtre, None).await {
-//         Ok(inner) => inner,
-//         Err(e) => Err(format!("grosfichiers.emettre_evenement_maj_fichier Erreur collection.find_one pour {} : {:?}", tuuid_str, e))?
-//     };
-//     match doc_fichier {
-//         Some(inner) => {
-//             let fichier_mappe = match mapper_fichier_db(inner) {
-//                 Ok(inner) => inner,
-//                 Err(e) => Err(format!("grosfichiers.emettre_evenement_maj_fichier Erreur mapper_fichier_db : {:?}", e))?
-//             };
-//             let routage = RoutageMessageAction::builder("grosfichiers", "majFichier")
-//                 .exchanges(vec![Securite::L2Prive])
-//                 .build();
-//             middleware.emettre_evenement(routage, &fichier_mappe).await?;
-//         },
-//         None => Err(format!("grosfichiers.emettre_evenement_maj_fichier Fichier {} introuvable", tuuid_str))?
-//     };
-//
-//     Ok(())
-// }
-
-// pub async fn emettre_evenement_maj_collection<M, S>(middleware: &M, tuuid: S) -> Result<(), String>
-// where
-//     M: GenerateurMessages + MongoDao,
-//     S: AsRef<str>
-// {
-//     let tuuid_str = tuuid.as_ref();
-//     debug!("grosfichiers.emettre_evenement_maj_collection Emettre evenement maj pour collection {}", tuuid_str);
-//
-//     // Charger fichier
-//     let filtre = doc! {CHAMP_TUUID: tuuid_str};
-//     let collection = middleware.get_collection(NOM_COLLECTION_FICHIERS_REP)?;
-//     let doc_fichier = match collection.find_one(filtre, None).await {
-//         Ok(inner) => inner,
-//         Err(e) => Err(format!("grosfichiers.where Erreur collection.find_one pour {} : {:?}", tuuid_str, e))?
-//     };
-//     match doc_fichier {
-//         Some(inner) => {
-//             let fichier_mappe = match mapper_fichier_db(inner) {
-//                 Ok(inner) => inner,
-//                 Err(e) => Err(format!("grosfichiers.emettre_evenement_maj_collection Erreur mapper_fichier_db : {:?}", e))?
-//             };
-//             let routage = RoutageMessageAction::builder("grosfichiers", "majCollection")
-//                 .exchanges(vec![Securite::L2Prive])
-//                 .build();
-//             middleware.emettre_evenement(routage, &fichier_mappe).await?;
-//         },
-//         None => Err(format!("grosfichiers.emettre_evenement_maj_collection Collection {} introuvable", tuuid_str))?
-//     };
-//
-//     Ok(())
-// }
 
 #[cfg(test)]
 mod test_integration {
