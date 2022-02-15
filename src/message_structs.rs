@@ -45,12 +45,8 @@ pub struct DocDestinataire {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionPoster {
     pub message_chiffre: String,
-    // pub from: String,
     pub to: Vec<String>,
     pub bcc: Option<Vec<String>>,
-    // pub reply_to: Option<String>,
-    // pub subject: Option<String>,
-    // pub content: Option<String>,
     pub attachments: Option<Vec<String>>,
     pub fingerprint_certificat: String,
     pub hachage_bytes: String,
