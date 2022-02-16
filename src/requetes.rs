@@ -150,7 +150,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
     debug!("requete_get_permission cle parsed : {:?}", requete);
 
     // Utiliser certificat du message client (requete) pour demande de rechiffrage
-    let pem_rechiffrage: Vec<String> = match m.message.certificat {
+    let pem_rechiffrage: Vec<String> = match &m.message.certificat {
         Some(c) => {
             let fp_certs = c.get_pem_vec();
             fp_certs.into_iter().map(|cert| cert.pem).collect()
@@ -180,11 +180,6 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
         }
     }
 
-    // let permission = json!({
-    //     "permission_hachage_bytes": hachage_bytes,
-    //     "permission_duree": 300,
-    // });
-
     let permission = json!({
         "liste_hachage_bytes": hachage_bytes,
         "certificat_rechiffrage": pem_rechiffrage,
@@ -208,7 +203,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
 
     middleware.transmettre_requete(routage, &permission).await?;
 
-    Ok(Some(middleware.formatter_reponse(&permission, None)?))
+    Ok(None)  // Some(middleware.formatter_reponse(&permission, None)?))
 }
 
 async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
