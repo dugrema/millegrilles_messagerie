@@ -245,33 +245,8 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     middleware.transmettre_commande(routage, &commande, false).await?;
     // debug!("Reponse commande message local : {:?}", reponse);
 
-    marquer_outgoing_resultat(middleware, uuid_transaction, &destinataires, true, 201).await?;
-
-    // // TODO - Fix verif confirmation. Ici on assume un succes
-    // {
-    //     debug!("Marquer idmg {} comme pousse pour message {}", idmg_local, uuid_transaction);
-    //
-    //     // Marquer process comme succes pour reception sur chaque usager
-    //     let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
-    //     let filtre_outgoing = doc! { "uuid_transaction": uuid_transaction };
-    //     let array_filters = vec! [
-    //         doc! {"dest.user": {"$in": destinataires }}
-    //     ];
-    //     let options = UpdateOptions::builder()
-    //         .array_filters(array_filters)
-    //         .build();
-    //     let ops = doc! {
-    //         "$pull": {"idmgs_unprocessed": &idmg_local},
-    //         "$set": {
-    //             "destinataires.$[dest].processed": true,
-    //             "destinataires.$[dest].result": 201,
-    //         },
-    //         "$currentDate": {"last_processed": true}
-    //     };
-    //
-    //     let resultat = collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await?;
-    //     debug!("Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg_local, uuid_transaction, resultat);
-    // }
+    // TODO - Fix verif confirmation. Ici on assume un succes
+    //marquer_outgoing_resultat(middleware, uuid_transaction, &destinataires, true, 201).await?;
 
     Ok(())
 }
@@ -337,34 +312,42 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<Ma
     }
 }
 
-async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_transaction: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
+pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_transaction: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
     -> Result<(), String>
     where M: GenerateurMessages + MongoDao
 {
-    let idmg_local = middleware.get_enveloppe_privee().idmg()?;
-    debug!("Marquer idmg {} comme pousse pour message {}", idmg_local, uuid_transaction);
+    // let idmg_local = middleware.get_enveloppe_privee().idmg()?;
+    debug!("Marquer idmg {} comme pousse pour message {}", idmg, uuid_transaction);
 
     // Marquer process comme succes pour reception sur chaque usager
     let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     let filtre_outgoing = doc! { "uuid_transaction": uuid_transaction };
     let array_filters = vec! [
-        doc! {"dest.user": {"$in": destinataires }}
+        doc! {"dest.destinataire": {"$in": destinataires }}
     ];
     let options = UpdateOptions::builder()
-        .array_filters(array_filters)
+        .array_filters(array_filters.clone())
         .build();
-    let ops = doc! {
-        "$pull": {"idmgs_unprocessed": &idmg_local},
+
+    let mut ops = doc! {
+        // "$pull": {"idmgs_unprocessed": &idmg_local},
         "$set": {
             "destinataires.$[dest].processed": processed,
             "destinataires.$[dest].result": result_code,
         },
         "$currentDate": {"last_processed": true}
     };
+    if processed {
+        ops.insert("$pull", doc!{"idmgs_unprocessed": &idmg});
+    } else {
+        // Incrementer retry count
+        todo!("Incrementer retry count");
+    }
 
+    debug!("marquer_outgoing_resultat Filtre maj outgoing : {:?}, ops: {:?}, array_filters : {:?}", filtre_outgoing, ops, array_filters);
     match collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await {
         Ok(resultat) => {
-            debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg_local, uuid_transaction, resultat);
+            debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg, uuid_transaction, resultat);
             Ok(())
         },
         Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur sauvegarde transaction, conversion : {:?}", e))

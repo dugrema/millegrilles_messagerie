@@ -21,11 +21,12 @@ use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
+use millegrilles_common_rust::verificateur::ValidationOptions;
 
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::message_structs::*;
-use crate::pompe_messages::emettre_evenement_pompe;
+use crate::pompe_messages::{emettre_evenement_pompe, marquer_outgoing_resultat, PompeMessages};
 
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
 where
@@ -239,17 +240,63 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
     let uuid_transaction = transaction.get_uuid_transaction().to_owned();
 
-    let transaction_recevoir: TransactionRecevoir = match transaction.clone().convertir::<TransactionRecevoir>() {
+    // let transaction_recevoir: TransactionRecevoir = match transaction.clone().convertir::<TransactionRecevoir>() {
+    //     Ok(t) => t,
+    //     Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
+    // };
+    let message_recevoir: CommandeRecevoirPost = match transaction.clone().convertir::<CommandeRecevoirPost>() {
         Ok(t) => t,
         Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
     };
+    let mut message_recevoir_serialise = match MessageSerialise::from_serializable(message_recevoir.message) {
+        Ok(m) => Ok(m),
+        Err(e) => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise : {:?}", e))
+    }?;
+
+    // Valider message qui est potentiellement d'une millegrille tierce
+    let message_enveloppe: TransactionPoster = match message_recevoir_serialise.parsed.map_contenu(None) {
+        Ok(m) => Ok(m),
+        Err(e) => Err(format!("transactions.transaction_recevoir Erreur durant conversion message vers TransactionPoster : {:?}", e))
+    }?;
+    let idmg_local = middleware.get_enveloppe_privee().idmg()?;
+    let idmg_message = message_recevoir_serialise.get_entete().idmg.as_str();
+    let uuid_message = message_recevoir_serialise.get_entete().uuid_transaction.as_str();
+    match idmg_local.as_str() == idmg_message {
+        true => {
+            // Marquer le message comme traiter dans "outgoing local"
+            let mut destinataires = message_enveloppe.to.clone();
+            if let Some(bcc) = message_enveloppe.bcc.clone() {
+                destinataires.extend(bcc.into_iter());
+            }
+            marquer_outgoing_resultat(
+                middleware,
+                uuid_message,
+                idmg_local.as_str(),
+                &destinataires,
+                true,
+                201
+            ).await?;
+
+            let options_validation = ValidationOptions::new(false, true, true);
+            let resultat_validation = match message_recevoir_serialise.valider(middleware, Some(&options_validation)).await {
+                Ok(r) => Ok(r),
+                Err(e) => Err(format!("transactions.transaction_recevoir Erreur durant la validation du message : {:?}", e))
+            }?;
+            if ! resultat_validation.valide() {
+                Err(format!("Erreur validation message : {:?}", resultat_validation))?;
+            }
+        },
+        false => {
+            todo!("Verifier message idmg tiers");
+        }
+    }
 
     // Conserver message pour chaque destinataires locaux
-    let message_enveloppe = transaction_recevoir.message;
+    //let transaction_poster: TransactionPoster = message_recevoir_serialise
     let message_chiffre = message_enveloppe.message_chiffre;
     let hachage_bytes = message_enveloppe.hachage_bytes;
     let fingerprint_usager = message_enveloppe.fingerprint_certificat;
-    let destinataires = transaction_recevoir.destinataires;
+    let destinataires = message_recevoir.destinataires;
     let attachments = message_enveloppe.attachments;
 
     // Resolve destinataires nom_usager => user_id
@@ -312,6 +359,9 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         }
     }
 
+    // Si reception d'un message local, mettre a jour flags dans outgoing
+
+
     middleware.reponse_ok()
 }
 
@@ -369,7 +419,8 @@ async fn transaction_initialiser_profil<M, T>(gestionnaire: &GestionnaireMessage
     Ok(Some(reponse))
 }
 
-async fn transaction_maj_contact<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
+async fn transaction_maj_contact<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
+    -> Result<Option<MessageMilleGrille>, String>
     where
         M: GenerateurMessages + MongoDao + ValidateurX509,
         T: Transaction

@@ -306,6 +306,21 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         Some(options_unprocessed)
     ).await?;
 
+    // Index user_id, uuid_transaction pour messages incoming
+    let options_incoming_userid = IndexOptions {
+        nom_index: Some(String::from("userid_uuidtransaction")),
+        unique: true
+    };
+    let champs_incoming_userid = vec!(
+        ChampIndex {nom_champ: String::from("user_id"), direction: 1},
+        ChampIndex {nom_champ: String::from("uuid_transaction"), direction: 1},
+    );
+    middleware.create_index(
+        NOM_COLLECTION_INCOMING,
+        champs_incoming_userid,
+        Some(options_incoming_userid)
+    ).await?;
+
     Ok(())
 }
 
