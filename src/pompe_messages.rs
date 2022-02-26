@@ -36,19 +36,6 @@ pub async fn traiter_cedule<M>(middleware: &M, trigger: &MessageCedule)
     Ok(())
 }
 
-pub async fn evenement_pompe_poste<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: &MessageValideAction)
-    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where
-        M: ValidateurX509 + GenerateurMessages + MongoDao,
-{
-    debug!("pompe_messages.evenement_pompe_poste Evenement recu {:?}", m);
-    let tx_pompe = gestionnaire.get_tx_pompe();
-    let message: MessagePompe = m.message.parsed.map_contenu(None)?;
-    tx_pompe.send(message).await?;
-
-    Ok(None)
-}
-
 /// Emet un evenement pour declencher la pompe de messages au besoin.
 pub async fn emettre_evenement_pompe<M>(middleware: &M, idmgs: Option<Vec<String>>)
                                         -> Result<(), Box<dyn Error>>
@@ -63,6 +50,20 @@ pub async fn emettre_evenement_pompe<M>(middleware: &M, idmgs: Option<Vec<String
     middleware.emettre_evenement(routage, &evenement).await?;
 
     Ok(())
+}
+
+/// Reception d'un evenement MQ de traitement de messages a poster
+pub async fn evenement_pompe_poste<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: &MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where
+        M: ValidateurX509 + GenerateurMessages + MongoDao,
+{
+    debug!("pompe_messages.evenement_pompe_poste Evenement recu {:?}", m);
+    let tx_pompe = gestionnaire.get_tx_pompe();
+    let message: MessagePompe = m.message.parsed.map_contenu(None)?;
+    tx_pompe.send(message).await?;
+
+    Ok(None)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -203,7 +204,8 @@ async fn traiter_batch_messages<M>(middleware: &M, idmg_traitement: &str, messag
             pousser_message_local(middleware, message).await?;
         }
     } else {
-        Err(format!("MilleGrille tierce non supportee (IDMG: {})", idmg_traitement))?
+        todo!("Traiter pousser message avec idmg tiers")
+        // Err(format!("MilleGrille tierce non supportee (IDMG: {})", idmg_traitement))?
     };
 
     Ok(())
@@ -227,9 +229,58 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
         Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
     }?;
 
+    // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
+    let destinataires = mapper_destinataires(message, mapping);
+
+    // Charger transaction message mappee via serde
+    let message_a_transmettre = charger_message(middleware, uuid_transaction).await?;
+
+    // Emettre commande recevoir
+    let commande = CommandeRecevoirPost{ message: message_a_transmettre, destinataires: destinataires.clone(), };
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_RECEVOIR)
+        .exchanges(vec![Securite::L2Prive])
+        .build();
+
+    // TODO - Mettre pompe sur sa propre Q, blocking true
+    middleware.transmettre_commande(routage, &commande, false).await?;
+    // debug!("Reponse commande message local : {:?}", reponse);
+
+    marquer_outgoing_resultat(middleware, uuid_transaction, &destinataires, true, 201).await?;
+
+    // // TODO - Fix verif confirmation. Ici on assume un succes
+    // {
+    //     debug!("Marquer idmg {} comme pousse pour message {}", idmg_local, uuid_transaction);
+    //
+    //     // Marquer process comme succes pour reception sur chaque usager
+    //     let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    //     let filtre_outgoing = doc! { "uuid_transaction": uuid_transaction };
+    //     let array_filters = vec! [
+    //         doc! {"dest.user": {"$in": destinataires }}
+    //     ];
+    //     let options = UpdateOptions::builder()
+    //         .array_filters(array_filters)
+    //         .build();
+    //     let ops = doc! {
+    //         "$pull": {"idmgs_unprocessed": &idmg_local},
+    //         "$set": {
+    //             "destinataires.$[dest].processed": true,
+    //             "destinataires.$[dest].result": 201,
+    //         },
+    //         "$currentDate": {"last_processed": true}
+    //     };
+    //
+    //     let resultat = collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await?;
+    //     debug!("Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg_local, uuid_transaction, resultat);
+    // }
+
+    Ok(())
+}
+
+/// Mapper les destinataires pour un message
+fn mapper_destinataires(message: &DocOutgointProcessing, mapping: &DocMappingIdmg) -> Vec<String> {
     let mut destinataires = Vec::new();
 
-    // Identifier destinataires qui correspondent via DNS
+    // Identifier destinataires qui correspondent au IDMG via DNS
     if let Some(mapping_dns) = mapping.dns.as_ref() {
         if let Some(d) = message.destinataires.as_ref() {
             for dest in d {
@@ -244,75 +295,78 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
         }
     }
 
-    debug!("Mapping destinataires pour idmg {}, message {} : {:?}", idmg_local, uuid_transaction, destinataires);
+    debug!("Mapping destinataires pour message {} : {:?}", message.uuid_transaction, destinataires);
+    destinataires
+}
 
-    // Charger transaction message
-    let doc = {
-        let collection_transactions = middleware.get_collection(NOM_COLLECTION_TRANSACTIONS)?;
-        let filtre_transaction = doc! { "en-tete.uuid_transaction": uuid_transaction };
-        let doc = collection_transactions.find_one(filtre_transaction, None).await?;
-        if let Some(d) = doc {
-            d
-        } else {
-            Err(format!("pompe_messages.pousser_message_local Transaction pour message {} introuvable", uuid_transaction))?
-        }
-    };
-
-    debug!("Message a transmettre : {:?}", doc);
-    let mut val = match serde_json::to_value(doc) {
-        Ok(v) => match v.as_object() {
-            Some(o) => o.to_owned(),
-            None => Err(format!("Erreur sauvegarde transaction, mauvais type objet JSON"))?,
+async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<Map<String, Value>, String>
+    where M: MongoDao
+{
+    let collection_transactions = middleware.get_collection(NOM_COLLECTION_TRANSACTIONS)?;
+    let filtre_transaction = doc! { "en-tete.uuid_transaction": uuid_transaction };
+    let doc_message = match collection_transactions.find_one(filtre_transaction, None).await {
+        Ok(d) => match d {
+            Some(d) => Ok(d),
+            None => Err(format!("pompe_messages.charger_message Transaction pour message {} introuvable", uuid_transaction))
         },
-        Err(e) => Err(format!("Erreur sauvegarde transaction, conversion : {:?}", e))?,
+        Err(e) => Err(format!("pompe_messages.charger_message Erreur chargement transaction message : {:?}", e))
+    }?;
+
+    // Preparer message a transmettre. Enlever elements
+    debug!("Message a transmettre : {:?}", doc_message);
+    match serde_json::to_value(doc_message) {
+        Ok(v) => match v.as_object() {
+            Some(o) => {
+                let mut val = o.to_owned();
+                let mut keys_to_remove = Vec::new();
+                for key in val.keys() {
+                    if key.starts_with("_") && key != "_signature" && key != "_bcc" {
+                        keys_to_remove.push(key.to_owned());
+                    }
+                }
+                for key in keys_to_remove {
+                    val.remove(key.as_str());
+                }
+                debug!("Message mappe : {:?}", val);
+
+                Ok(val)
+            },
+            None => Err(format!("Erreur sauvegarde transaction, mauvais type objet JSON"))
+        },
+        Err(e) => Err(format!("Erreur sauvegarde transaction, conversion : {:?}", e))
+    }
+}
+
+async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_transaction: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
+    -> Result<(), String>
+    where M: GenerateurMessages + MongoDao
+{
+    let idmg_local = middleware.get_enveloppe_privee().idmg()?;
+    debug!("Marquer idmg {} comme pousse pour message {}", idmg_local, uuid_transaction);
+
+    // Marquer process comme succes pour reception sur chaque usager
+    let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let filtre_outgoing = doc! { "uuid_transaction": uuid_transaction };
+    let array_filters = vec! [
+        doc! {"dest.user": {"$in": destinataires }}
+    ];
+    let options = UpdateOptions::builder()
+        .array_filters(array_filters)
+        .build();
+    let ops = doc! {
+        "$pull": {"idmgs_unprocessed": &idmg_local},
+        "$set": {
+            "destinataires.$[dest].processed": processed,
+            "destinataires.$[dest].result": result_code,
+        },
+        "$currentDate": {"last_processed": true}
     };
 
-    let mut keys_to_remove = Vec::new();
-    for key in val.keys() {
-        if key.starts_with("_") && key != "_signature" && key != "_bcc" {
-            keys_to_remove.push(key.to_owned());
-        }
+    match collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await {
+        Ok(resultat) => {
+            debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg_local, uuid_transaction, resultat);
+            Ok(())
+        },
+        Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur sauvegarde transaction, conversion : {:?}", e))
     }
-    for key in keys_to_remove {
-        val.remove(key.as_str());
-    }
-    debug!("Message mappe : {:?}", val);
-
-    // Emettre commande recevoir
-    let commande = CommandeRecevoirPost{ message: val, destinataires: destinataires.clone(), };
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_RECEVOIR)
-        .exchanges(vec![Securite::L2Prive])
-        .build();
-
-    // TODO - Mettre pompe sur sa propre Q, blocking true
-    middleware.transmettre_commande(routage, &commande, false).await?;
-    // debug!("Reponse commande message local : {:?}", reponse);
-
-    // TODO - Fix verif confirmation. Ici on assume un succes
-    {
-        debug!("Marquer idmg {} comme pousse pour message {}", idmg_local, uuid_transaction);
-
-        // Marquer process comme succes pour reception sur chaque usager
-        let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
-        let filtre_outgoing = doc! { "uuid_transaction": uuid_transaction };
-        let array_filters = vec! [
-            doc! {"dest.user": {"$in": destinataires }}
-        ];
-        let options = UpdateOptions::builder()
-            .array_filters(array_filters)
-            .build();
-        let ops = doc! {
-            "$pull": {"idmgs_unprocessed": &idmg_local},
-            "$set": {
-                "destinataires.$[dest].processed": true,
-                "destinataires.$[dest].result": 201,
-            },
-            "$currentDate": {"last_processed": true}
-        };
-
-        let resultat = collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await?;
-        debug!("Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg_local, uuid_transaction, resultat);
-    }
-
-    Ok(())
 }
