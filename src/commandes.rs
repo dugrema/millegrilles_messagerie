@@ -69,7 +69,7 @@ async fn commande_poster<M>(middleware: &M, m: MessageValideAction, gestionnaire
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commande_poster Consommer commande : {:?}", & m.message);
-    let commande: TransactionPoster = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandePoster = m.message.get_msg().map_contenu(None)?;
     debug!("Commande nouvelle versions parsed : {:?}", commande);
 
     {

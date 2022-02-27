@@ -201,11 +201,17 @@ async fn traiter_batch_messages<M>(middleware: &M, idmg_traitement: &str, messag
     if idmg_local == idmg_traitement {
         debug!("Traitement messages pour idmg local : {}", idmg_traitement);
         for message in messages_outgoing {
-            pousser_message_local(middleware, message).await?;
+            if let Err(e) = pousser_message_local(middleware, message).await {
+                error!("traiter_batch_messages Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
+            }
         }
     } else {
-        todo!("Traiter pousser message avec idmg tiers")
-        // Err(format!("MilleGrille tierce non supportee (IDMG: {})", idmg_traitement))?
+        for message in messages_outgoing {
+            if let Err(e) = pousser_message_vers_tiers(middleware, idmg_traitement, message).await {
+                error!("traiter_batch_messages Erreur traitement pousser_message_vers_tiers idmg {}, message {} : {:?}",
+                    idmg_traitement, message.uuid_transaction, e);
+            }
+        }
     };
 
     Ok(())
@@ -230,7 +236,10 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     }?;
 
     // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
-    let destinataires = mapper_destinataires(message, mapping);
+    let destinataires = {
+        let mut destinataires = mapper_destinataires(message, mapping);
+        destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
+    };
 
     // Charger transaction message mappee via serde
     let message_a_transmettre = charger_message(middleware, uuid_transaction).await?;
@@ -252,7 +261,7 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
 }
 
 /// Mapper les destinataires pour un message
-fn mapper_destinataires(message: &DocOutgointProcessing, mapping: &DocMappingIdmg) -> Vec<String> {
+fn mapper_destinataires(message: &DocOutgointProcessing, mapping: &DocMappingIdmg) -> Vec<DocDestinataire> {
     let mut destinataires = Vec::new();
 
     // Identifier destinataires qui correspondent au IDMG via DNS
@@ -262,7 +271,8 @@ fn mapper_destinataires(message: &DocOutgointProcessing, mapping: &DocMappingIdm
                 if let Some(dns_destinataire) = dest.dns.as_ref() {
                     if mapping_dns.contains(dns_destinataire) {
                         if let Some(u) = dest.user.as_ref() {
-                            destinataires.push(u.clone());
+                            // destinataires.push(u.clone());
+                            destinataires.push(dest.to_owned());
                         }
                     }
                 }
@@ -289,39 +299,62 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<Ma
 
     // Preparer message a transmettre. Enlever elements
     debug!("Message a transmettre : {:?}", doc_message);
-    match serde_json::to_value(doc_message) {
-        Ok(v) => match v.as_object() {
-            Some(o) => {
-                let mut val = o.to_owned();
-                let mut keys_to_remove = Vec::new();
-                for key in val.keys() {
-                    if key.starts_with("_") && key != "_signature" && key != "_bcc" {
-                        keys_to_remove.push(key.to_owned());
-                    }
-                }
-                for key in keys_to_remove {
-                    val.remove(key.as_str());
-                }
-                debug!("Message mappe : {:?}", val);
+    let commande: CommandeRecevoirPost = match convertir_bson_deserializable(doc_message) {
+        Ok(c) => Ok(c),
+        Err(e) => Err(format!("pompe_messages.charger_message Erreur chargement transaction message : {:?}", e))
+    }?;
 
-                Ok(val)
-            },
-            None => Err(format!("Erreur sauvegarde transaction, mauvais type objet JSON"))
-        },
-        Err(e) => Err(format!("Erreur sauvegarde transaction, conversion : {:?}", e))
+    let mut val_message = commande.message;
+    let mut keys_to_remove = Vec::new();
+    for key in val_message.keys() {
+        if key.starts_with("_") && key != "_signature" && key != "_bcc" {
+            keys_to_remove.push(key.to_owned());
+        }
     }
+    for key in keys_to_remove {
+        val_message.remove(key.as_str());
+    }
+    debug!("Message mappe : {:?}", val_message);
+    Ok(val_message)
+
+    // match serde_json::to_value(doc_message) {
+    //     Ok(v) => match v.as_object() {
+    //         Some(o) => {
+    //             match o.get("message") {
+    //                 Some(doc_message) => {
+    //                     let mut val = doc_message.to_owned();
+    //                     let mut keys_to_remove = Vec::new();
+    //                     for key in val.keys() {
+    //                         if key.starts_with("_") && key != "_signature" && key != "_bcc" {
+    //                             keys_to_remove.push(key.to_owned());
+    //                         }
+    //                     }
+    //                     for key in keys_to_remove {
+    //                         val.remove(key.as_str());
+    //                     }
+    //                     debug!("Message mappe : {:?}", val);
+    //
+    //                     Ok(val)
+    //                 },
+    //                 None => Err(format!("Erreur sauvegarde transaction, mauvais type objet JSON"))
+    //             }
+    //         },
+    //         None => Err(format!("Erreur sauvegarde transaction, mauvais type objet JSON"))
+    //     },
+    //     Err(e) => Err(format!("Erreur sauvegarde transaction, conversion : {:?}", e))
+    // }
 }
 
-pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_transaction: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
-    -> Result<(), String>
+pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
+                                          -> Result<(), String>
     where M: GenerateurMessages + MongoDao
 {
     // let idmg_local = middleware.get_enveloppe_privee().idmg()?;
-    debug!("Marquer idmg {} comme pousse pour message {}", idmg, uuid_transaction);
+    debug!("Marquer idmg {} comme pousse pour message {}", idmg, uuid_message);
 
     // Marquer process comme succes pour reception sur chaque usager
     let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
-    let filtre_outgoing = doc! { "uuid_transaction": uuid_transaction };
+    let filtre_outgoing = doc! { CHAMP_UUID_MESSAGE: uuid_message };
     let array_filters = vec! [
         doc! {"dest.destinataire": {"$in": destinataires }}
     ];
@@ -347,9 +380,44 @@ pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_transaction: &str
     debug!("marquer_outgoing_resultat Filtre maj outgoing : {:?}, ops: {:?}, array_filters : {:?}", filtre_outgoing, ops, array_filters);
     match collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await {
         Ok(resultat) => {
-            debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg, uuid_transaction, resultat);
+            debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg, uuid_message, resultat);
             Ok(())
         },
         Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur sauvegarde transaction, conversion : {:?}", e))
     }
+}
+
+async fn pousser_message_vers_tiers<M>(middleware: &M, idmg_traitement: &str, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    debug!("Pousser message : {:?}", message);
+    let uuid_transaction = message.uuid_transaction.as_str();
+
+    let mapping: &DocMappingIdmg = if let Some(m) = message.idmgs_mapping.as_ref() {
+        match m.get(idmg_traitement) {
+            Some(m) => Ok(m),
+            None => Err(format!("Aucun mapping trouve dans message {} pour idmg tiers {}", uuid_transaction, idmg_traitement))
+        }
+    } else {
+        Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_traitement))
+    }?;
+
+    // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
+    let destinataires = {
+        let mut destinataires = mapper_destinataires(message, mapping);
+        destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
+    };
+
+    // Charger transaction message mappee via serde
+    let message_a_transmettre = charger_message(middleware, uuid_transaction).await?;
+
+    // Emettre commande recevoir
+    let commande = CommandeRecevoirPost{ message: message_a_transmettre, destinataires: destinataires.clone() };
+    debug!("pousser_message_vers_tiers Pousser vers idmg {} message {:?}", idmg_traitement, commande);
+
+    // TODO Fix marquer traitement apres upload
+    warn!{"Marquer message pousse - TODO fix, simulation seulement"};
+    marquer_outgoing_resultat(middleware, uuid_transaction, idmg_traitement, &destinataires, true, 201).await?;
+
+    Ok(())
 }

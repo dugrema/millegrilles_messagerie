@@ -291,6 +291,20 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         Some(options_unique_outgoing_transactions_uuid_transaction)
     ).await?;
 
+    // Index uuid_message pour messages_outgoing
+    let options_unique_outgoing_transactions_uuid_transaction = IndexOptions {
+        nom_index: Some(String::from("uuid_message")),
+        unique: true
+    };
+    let champs_index_outgoing_transactions_uuid_transactions = vec!(
+        ChampIndex {nom_champ: String::from("uuid_message"), direction: 1},
+    );
+    middleware.create_index(
+        NOM_COLLECTION_OUTGOING_PROCESSING,
+        champs_index_outgoing_transactions_uuid_transactions,
+        Some(options_unique_outgoing_transactions_uuid_transaction)
+    ).await?;
+
     // Index idmg_unprocessed, last_processed
     let options_unprocessed = IndexOptions {
         nom_index: Some(String::from("unprocessed")),

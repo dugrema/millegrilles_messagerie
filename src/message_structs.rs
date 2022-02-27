@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use log::debug;
+
 use millegrilles_common_rust::chrono;
 use millegrilles_common_rust::chrono::Utc;
-use millegrilles_common_rust::formatteur_messages::DateEpochSeconds;
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
 
@@ -42,35 +44,69 @@ pub struct DocDestinataire {
     pub retry: Option<u32>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransactionPoster {
-    pub message_chiffre: String,
-    pub to: Vec<String>,
-    pub bcc: Option<Vec<String>>,
-    pub attachments: Option<Vec<String>>,
-    pub fingerprint_certificat: String,
-    pub hachage_bytes: String,
+#[derive(Clone, Debug, Deserialize)]
+pub struct AdresseMessagerie {
+    pub destinataire: String,
+    pub user: String,
+    pub dns: Option<String>,
 }
 
-impl TransactionPoster {
+impl AdresseMessagerie {
 
-    /// Retourne la liste combinee de to et bcc.
-    pub fn get_destinataires(&self) -> Vec<String> {
-        let mut destinataires = self.to.clone();
-        if let Some(bcc) = &self.bcc {
-            for dest in bcc {
-                destinataires.push(dest.to_owned());
-            }
-        }
+    pub fn new(destinataire: &str) -> Result<Self, String> {
+        let mut dest_split = destinataire.split("/");
 
-        destinataires
+        let user: &str = match dest_split.next() {
+            Some(mut u) => {
+                u = u.trim_start_matches("@");
+                Ok(u)
+            },
+            None => Err(format!("AdresseMessagerie invalide : {}", destinataire))
+        }?;
+
+        let hostname: &str = match dest_split.next() {
+            Some(d) => Ok(d),
+            None => Err(format!("AdresseMessagerie invalide, hostname manquant : {}", destinataire))
+        }?;
+
+        Ok(AdresseMessagerie {
+            destinataire: destinataire.to_owned(),
+            user: user.to_owned(),
+            dns: Some(hostname.to_owned()),
+        })
     }
 
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandePoster {
+    pub message: DocumentMessage,
+    pub destinataires: Vec<String>,
+}
+
+impl CommandePoster {
+
+    /// Retourne la liste combinee de to et bcc.
+    pub fn get_destinataires(&self) -> Vec<String> {
+        self.destinataires.clone()
+    }
+
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocumentMessage {
+    pub message_chiffre: String,
+    pub attachments: Option<Vec<String>>,
+    pub fingerprint_certificat: String,
+    pub hachage_bytes: String,
+
+    #[serde(rename = "en-tete", skip_serializing)]
+    pub entete: Option<Entete>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionRecevoir {
-    pub message: TransactionPoster,
+    pub message: DocumentMessage,
     pub destinataires: Vec<String>,
 }
 

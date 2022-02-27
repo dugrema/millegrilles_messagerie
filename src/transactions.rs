@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::convert::TryInto;
 
-use log::{debug, error, warn};
+use log::{debug, info, error, warn};
 use millegrilles_common_rust::{chrono, serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::{bson, bson::{doc, Document}};
@@ -82,17 +82,22 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         None => None
     };
 
-    let transaction_poster: TransactionPoster = match transaction.clone().convertir::<TransactionPoster>() {
+    let transaction_poster: CommandePoster = match transaction.clone().convertir::<CommandePoster>() {
         Ok(t) => t,
         Err(e) => Err(format!("messagerie.transaction_poster Erreur conversion transaction : {:?}", e))?
     };
+
+    let uuid_message = match &transaction_poster.message.entete {
+        Some(e) => Ok(e.uuid_transaction.clone()),
+        None => Err(format!("transactions.transaction_poster Entete manquante du message {}", uuid_transaction))
+    }?;
 
     // Conserver document dans outgoing et flags dans outgoing_processing
     let mut doc_bson_transaction = match convertir_to_bson(&transaction_poster) {
         Ok(d) => d,
         Err(e) => Err(format!("transactions.transaction_poster Erreur conversion transaction en bson : {:?}", e))?
     };
-    doc_bson_transaction.insert("uuid_transaction", &uuid_transaction);
+    doc_bson_transaction.insert("uuid_transaction", &uuid_message);
     doc_bson_transaction.insert("user_id", &user_id);
 
     let mut dns_adresses: HashSet<String> = HashSet::new();
@@ -133,6 +138,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     let dns_adresses: Vec<String> = dns_adresses.into_iter().collect();
     let doc_processing = doc! {
         TRANSACTION_CHAMP_UUID_TRANSACTION: uuid_transaction,
+        CHAMP_UUID_MESSAGE: uuid_message,
         "destinataires": destinataires,
         "user_id": user_id,
         "dns_unresolved": &dns_adresses,
@@ -254,7 +260,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     }?;
 
     // Valider message qui est potentiellement d'une millegrille tierce
-    let message_enveloppe: TransactionPoster = match message_recevoir_serialise.parsed.map_contenu(None) {
+    let message_enveloppe: DocumentMessage = match message_recevoir_serialise.parsed.map_contenu(None) {
         Ok(m) => Ok(m),
         Err(e) => Err(format!("transactions.transaction_recevoir Erreur durant conversion message vers TransactionPoster : {:?}", e))
     }?;
@@ -264,10 +270,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     match idmg_local.as_str() == idmg_message {
         true => {
             // Marquer le message comme traiter dans "outgoing local"
-            let mut destinataires = message_enveloppe.to.clone();
-            if let Some(bcc) = message_enveloppe.bcc.clone() {
-                destinataires.extend(bcc.into_iter());
-            }
+            let destinataires = message_recevoir.destinataires.clone();
             marquer_outgoing_resultat(
                 middleware,
                 uuid_message,
@@ -296,8 +299,20 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     let message_chiffre = message_enveloppe.message_chiffre;
     let hachage_bytes = message_enveloppe.hachage_bytes;
     let fingerprint_usager = message_enveloppe.fingerprint_certificat;
-    let destinataires = message_recevoir.destinataires;
     let attachments = message_enveloppe.attachments;
+
+    // Retirer la part serveur du destinataire
+    let destinataires = {
+        let mut destinataires = Vec::new();
+        for adresse in &message_recevoir.destinataires {
+            match AdresseMessagerie::new(adresse.as_str()) {
+                Ok(a) => destinataires.push(a.user),
+                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+            }
+        }
+
+        destinataires
+    };
 
     // Resolve destinataires nom_usager => user_id
     let reponse_mappee: ReponseUseridParNomUsager = {
