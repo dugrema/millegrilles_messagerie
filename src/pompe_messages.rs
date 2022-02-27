@@ -10,6 +10,7 @@ use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::ValidateurX509;
 use millegrilles_common_rust::constantes::{Securite, SECURITE_2_PRIVE};
+use millegrilles_common_rust::constantes::Securite::L1Public;
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::messages_generiques::MessageCedule;
@@ -414,6 +415,11 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, idmg_traitement: &str, me
     // Emettre commande recevoir
     let commande = CommandeRecevoirPost{ message: message_a_transmettre, destinataires: destinataires.clone() };
     debug!("pousser_message_vers_tiers Pousser vers idmg {} message {:?}", idmg_traitement, commande);
+
+    let routage = RoutageMessageAction::builder("postmaster", "poster")
+        .exchanges(vec![L1Public])
+        .build();
+    middleware.transmettre_commande(routage, &commande, false).await?;
 
     // TODO Fix marquer traitement apres upload
     warn!{"Marquer message pousse - TODO fix, simulation seulement"};
