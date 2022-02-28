@@ -203,4 +203,26 @@ pub struct IdmgMappingDestinataires {
     pub idmg: String,
     pub mapping: DocMappingIdmg,
     pub destinataires: Vec<String>,
+    pub fiche: FicheMillegrilleApplication,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseFichesApplications {
+    pub fiches: Vec<FicheMillegrilleApplication>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FicheMillegrilleApplication {
+    pub idmg: String,
+    pub adresses: Vec<String>,
+    pub application: Vec<FicheApplication>,
+    pub ca: Option<String>,
+    pub chiffrage: Option<Vec<Vec<String>>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FicheApplication {
+    pub application: String,
+    pub url: String,
+    pub version: Option<String>,
 }

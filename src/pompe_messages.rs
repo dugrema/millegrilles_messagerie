@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::error::Error;
 use std::sync::Arc;
 
@@ -10,12 +11,12 @@ use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::ValidateurX509;
 use millegrilles_common_rust::constantes::{Securite, SECURITE_2_PRIVE};
-use millegrilles_common_rust::constantes::Securite::L1Public;
+use millegrilles_common_rust::constantes::Securite::{L1Public, L2Prive};
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::messages_generiques::MessageCedule;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
+use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json;
 use millegrilles_common_rust::serde_json::{json, Map, Value};
@@ -442,42 +443,81 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
         let mut mapping = Vec::new();
         match message.idmgs_mapping.as_ref() {
             Some(mappings) => {
-                for (idmg, doc_mapping_idmg) in mappings.iter() {
+
+                let idmgs_unprocessed = match &message.idmgs_unprocessed {
+                    Some(i) => i,
+                    None => {
+                        info!("pousser_message_vers_tiers Traitement d'un message ({}) avec aucuns idmgs unprocessed, ignorer.", uuid_transaction);
+                        return Ok(())
+                    }  // Rien a faire
+                };
+
+                // Faire liste des idmgs qui ne sont pas encore traites
+                let mut set_idmgs = HashSet::new();
+                for idmg in mappings.keys() {
                     if idmg == idmg_local { continue; } // Skip local
+                    if idmgs_unprocessed.contains(idmg) {
+                        set_idmgs.insert(idmg.clone());
+                    }
+                }
+
+                // Recuperer mapping de l'application messagerie pour chaque idmg
+                let routage_requete = RoutageMessageAction::builder("CoreTopologie", "applicationsTiers")
+                    .exchanges(vec![L2Prive])
+                    .build();
+                let requete = json!({"idmgs": &set_idmgs, "application": "messagerie"});
+                let fiches_applications: ReponseFichesApplications  = match middleware.transmettre_requete(routage_requete, &requete).await? {
+                    TypeMessage::Valide(r) => {
+                        debug!("pousser_message_vers_tiers Reponse applications : {:?}", r);
+                        Ok(r.message.parsed.map_contenu(None)?)
+                    },
+                    _ => Err(format!("pompe_messages.pousser_message_vers_tiers Requete applicationsTiers, reponse de mauvais type"))
+                }?;
+                debug!("pousser_message_vers_tiers Reponse applications mappees : {:?}", fiches_applications);
+
+                for fiche in fiches_applications.fiches {
+                    let idmg = fiche.idmg.as_str();
+                    let doc_mapping_idmg = match mappings.get(idmg) {
+                        Some(d) => d,
+                        None => continue  // Rien a faire
+                    };
 
                     let destinataires = {
                         let mut destinataires = mapper_destinataires(message, doc_mapping_idmg);
                         destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
                     };
 
-                    let mut mapping_idmg = IdmgMappingDestinataires {
-                        idmg: idmg.clone(),
+                    let mapping_idmg = IdmgMappingDestinataires {
+                        idmg: idmg.to_owned(),
                         mapping: doc_mapping_idmg.to_owned(),
                         destinataires,
+                        fiche,
                     };
 
                     mapping.push(mapping_idmg);
                 }
+
+                // for (idmg, doc_mapping_idmg) in mappings.iter() {
+                //     if idmg == idmg_local { continue; } // Skip local
+                //
+                //     let destinataires = {
+                //         let mut destinataires = mapper_destinataires(message, doc_mapping_idmg);
+                //         destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
+                //     };
+                //
+                //     let mut mapping_idmg = IdmgMappingDestinataires {
+                //         idmg: idmg.clone(),
+                //         mapping: doc_mapping_idmg.to_owned(),
+                //         destinataires,
+                //     };
+                //
+                //     mapping.push(mapping_idmg);
+                // }
             },
             None => Err(format!("pompe_message.pousser_message_vers_tiers Aucun mapping tiers"))?
         }
         mapping
     };
-
-    // if let Some(m) = message.idmgs_mapping.as_ref() {
-    //     match m.get(idmg_traitement) {
-    //         Some(m) => Ok(m),
-    //         None => Err(format!("Aucun mapping trouve dans message {} pour idmg tiers {}", uuid_transaction, idmg_traitement))
-    //     }
-    // } else {
-    //     Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_traitement))
-    // }?;
-
-    // // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
-    // let destinataires = {
-    //     let mut destinataires = mapper_destinataires(message, mapping);
-    //     destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
-    // };
 
     // Charger transaction message mappee via serde
     let message_a_transmettre = charger_message(middleware, uuid_transaction).await?;
@@ -499,7 +539,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     for destination in &commande.destinations {
         let idmg_traitement = destination.idmg.as_str();
         let destinataires = &destination.destinataires;
-        marquer_outgoing_resultat(middleware, uuid_transaction, idmg_traitement, &destinataires, true, 201).await?;
+        marquer_outgoing_resultat(middleware, uuid_transaction, idmg_traitement, &destinataires, true, 401).await?;
     }
 
     Ok(())
