@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use log::debug;
+use millegrilles_common_rust::chiffrage_cle::MetaInformationCle;
 
 use millegrilles_common_rust::chrono;
 use millegrilles_common_rust::chrono::Utc;
@@ -121,6 +122,7 @@ pub struct CommandeRecevoirPost {
 pub struct CommandePostmasterPoster {
     pub message: Map<String, Value>,
     pub destinations: Vec<IdmgMappingDestinataires>,
+    pub cle_info: MetaInformationCle,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -585,7 +585,8 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     // Emettre commande recevoir
     let commande = CommandePostmasterPoster{
         message: message_a_transmettre,
-        destinations: mapping
+        destinations: mapping,
+        cle_info: cle_message_info.clone().into()
     };
     debug!("pousser_message_vers_tiers Pousser message vers tiers {:?}", commande);
 
