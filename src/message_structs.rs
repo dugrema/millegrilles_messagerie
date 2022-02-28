@@ -17,7 +17,7 @@ pub struct ReponseTopologieResolveIdmg {
     pub dns: Option<HashMap<String, String>>
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocMappingIdmg {
     pub dns: Option<Vec<String>>,
     pub retry: Option<u32>,
@@ -117,6 +117,12 @@ pub struct CommandeRecevoirPost {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandePostmasterPoster {
+    pub message: Map<String, Value>,
+    pub destinations: Vec<IdmgMappingDestinataires>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReponseUseridParNomUsager {
     pub usagers: HashMap<String, Option<String>>,
 }
@@ -190,4 +196,11 @@ pub struct AdresseUserId {
 pub struct CommandeLu {
     pub uuid_transaction: String,
     pub lu: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IdmgMappingDestinataires {
+    pub idmg: String,
+    pub mapping: DocMappingIdmg,
+    pub destinataires: Vec<String>,
 }

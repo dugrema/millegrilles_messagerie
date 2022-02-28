@@ -90,7 +90,7 @@ impl PompeMessages {
 
     /// Thread d'execution de la pompe.
     pub async fn run<M>(mut self, middleware: Arc<M>)
-        where M: GenerateurMessages + MongoDao
+        where M: ValidateurX509 + GenerateurMessages + MongoDao
     {
         debug!("pompe_messages.PompeMessages Running thread pompe");
 
@@ -107,75 +107,144 @@ impl PompeMessages {
 
     async fn cycle_pompe_messages<M>(&mut self, middleware: &M, trigger: &MessagePompe)
         -> Result<(), Box<dyn Error>>
-        where M: GenerateurMessages + MongoDao
+        where M: ValidateurX509 + GenerateurMessages + MongoDao
     {
-        let idmgs = get_batch_idmgs(middleware, trigger).await?;
+        // let idmgs = get_batch_idmgs(middleware, trigger).await?;
+        // for idmg in idmgs {
+        //     let batch = get_batch_messages(middleware, idmg.as_str()).await?;
+        //     debug!("Traiter batch messages : {:?}", batch);
+        //     traiter_batch_messages(middleware, idmg.as_str(), &batch).await?;
+        // }
 
-        for idmg in idmgs {
-            let batch = get_batch_messages(middleware, idmg.as_str()).await?;
-            debug!("Traiter batch messages : {:?}", batch);
-            traiter_batch_messages(middleware, idmg.as_str(), &batch).await?;
-        }
+        traiter_messages_locaux(middleware, trigger).await;
+        traiter_messages_tiers(middleware, trigger).await;
+
+        // // Traitement messages locaux, traiter grande quantite puisque c'est local
+        // {
+        //     let batch = get_batch_messages(middleware, true, 1000).await?;
+        //     debug!("Traiter batch messages locaux : {:?}", batch);
+        //     for message in messages_outgoing {
+        //         if let Err(e) = pousser_message_local(middleware, message).await {
+        //             error!("traiter_batch_messages Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
+        //         }
+        //     }
+        // }
+        //
+        // // Traitement messages tiers
+        // {
+        //     let batch = get_batch_messages(middleware, false, 10).await?;
+        //     debug!("Traiter batch messages vers tiers : {:?}", batch);
+        //     traiter_batch_messages(middleware, false, &batch).await?;
+        // }
 
         Ok(())
     }
 }
 
-async fn get_batch_idmgs<M>(middleware: &M, trigger: &MessagePompe)
-    -> Result<Vec<String>, Box<dyn Error>>
-    where M: MongoDao
+async fn traiter_messages_locaux<M>(middleware: &M, trigger: &MessagePompe)
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
-    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let batch = match get_batch_messages(middleware, true, 1000).await {
+        Ok(b) => b,
+        Err(e) => {
+            error!("traiter_messages_locaux Erreur traitement pousser_message_local : {:?}", e);
+            return
+        }
+    };
 
-    let mut filtre = doc! {};
-    if let Some(idmgs) = &trigger.idmgs {
-        filtre.insert("idmgs_unprocessed", doc! {"$all": idmgs});
+    debug!("Traiter batch messages locaux : {:?}", batch);
+    for message in &batch {
+        if let Err(e) = pousser_message_local(middleware, message).await {
+            error!("traiter_messages_locaux Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
+        }
     }
-
-    let options = AggregateOptions::builder()
-        .build();
-
-    let pipeline = vec! [
-        // Match sur les idmgs specifies au besoin. Limiter matching si grande quantite en attente.
-        doc! {"$match": filtre},
-        // Expansion de tous les idmgs par message
-        doc! {"$unwind": {"path": "$idmgs_unprocessed"}},
-        // Grouper par date last_processed, permet d'aller chercher les plus vieux messages
-        doc! {"$group": {"_id": "$idmgs_unprocessed", "last_date": {"$min": "$last_processed"}}},
-        // Plus vieux en premier
-        doc! {"$sort": {"last_date": 1}},
-        // Mettre une limite dans la batch de retour
-        doc! {"$limit": 1},
-    ];
-    debug!("pompe_messages.get_batch_idmgs Pipeline idmgs a loader : {:?}", pipeline);
-
-    let mut curseur = collection.aggregate(pipeline, Some(options)).await?;
-    let mut resultat: Vec<String> = Vec::new();
-    while let Some(r) = curseur.next().await {
-        let doc = r?;
-        debug!("Result data : {:?}", doc);
-        let idmg = doc.get_str("_id")?;
-        resultat.push(idmg.into());
-    }
-
-    debug!("pompe_messages.get_batch_idmgs Resultat : {:?}", resultat);
-
-    Ok(resultat)
 }
 
-// Retourne une batch de messages non traites pour un idmg.
-async fn get_batch_messages<M>(middleware: &M, idmg: &str)
-    -> Result<Vec<DocOutgointProcessing>, Box<dyn Error>>
-    where M: MongoDao
+async fn traiter_messages_tiers<M>(middleware: &M, trigger: &MessagePompe)
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
-    debug!("pompe_messages.get_batch_messages Idmg {}", idmg);
+    let batch = match get_batch_messages(middleware, false, 10).await {
+        Ok(b) => b,
+        Err(e) => {
+            error!("traiter_messages_locaux Erreur traitement pousser_message_local : {:?}", e);
+            return
+        }
+    };
+
+    debug!("Traiter batch messages vers tiers : {:?}", batch);
+    for message in &batch {
+        if let Err(e) = pousser_message_vers_tiers(middleware, message).await {
+            error!("traiter_batch_messages Erreur traitement pousser_message_vers_tiers message {} : {:?}",
+                message.uuid_transaction, e);
+        }
+    }
+}
+
+
+// async fn get_batch_idmgs<M>(middleware: &M, trigger: &MessagePompe)
+//     -> Result<Vec<String>, Box<dyn Error>>
+//     where M: MongoDao
+// {
+//     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+//
+//     let mut filtre = doc! {};
+//     if let Some(idmgs) = &trigger.idmgs {
+//         filtre.insert("idmgs_unprocessed", doc! {"$all": idmgs});
+//     }
+//
+//     let options = AggregateOptions::builder()
+//         .build();
+//
+//     let pipeline = vec! [
+//         // Match sur les idmgs specifies au besoin. Limiter matching si grande quantite en attente.
+//         doc! {"$match": filtre},
+//         // Expansion de tous les idmgs par message
+//         doc! {"$unwind": {"path": "$idmgs_unprocessed"}},
+//         // Grouper par date last_processed, permet d'aller chercher les plus vieux messages
+//         doc! {"$group": {"_id": "$idmgs_unprocessed", "last_date": {"$min": "$last_processed"}}},
+//         // Plus vieux en premier
+//         doc! {"$sort": {"last_date": 1}},
+//         // Mettre une limite dans la batch de retour
+//         doc! {"$limit": 1},
+//     ];
+//     debug!("pompe_messages.get_batch_idmgs Pipeline idmgs a loader : {:?}", pipeline);
+//
+//     let mut curseur = collection.aggregate(pipeline, Some(options)).await?;
+//     let mut resultat: Vec<String> = Vec::new();
+//     while let Some(r) = curseur.next().await {
+//         let doc = r?;
+//         debug!("Result data : {:?}", doc);
+//         let idmg = doc.get_str("_id")?;
+//         resultat.push(idmg.into());
+//     }
+//
+//     debug!("pompe_messages.get_batch_idmgs Resultat : {:?}", resultat);
+//
+//     Ok(resultat)
+// }
+
+// Retourne une batch de messages non traites pour un idmg.
+// async fn get_batch_messages<M>(middleware: &M, idmg: &str)
+async fn get_batch_messages<M>(middleware: &M, local: bool, limit: i64)
+    -> Result<Vec<DocOutgointProcessing>, Box<dyn Error>>
+    where M: ValidateurX509 + MongoDao
+{
+    debug!("pompe_messages.get_batch_messages");
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
 
-    let filtre = doc! { "idmgs_unprocessed": {"$all": [idmg]} };
+    let idmg_local = middleware.idmg();
+    let filtre = match local {
+        true => {
+            // Filtre sur idmg local
+            let idmg_local = middleware.idmg();
+            doc! { "idmgs_unprocessed": {"$all": [idmg_local]} }
+        },
+        false => doc! { "idmgs_unprocessed.1": {"$exists": true} }   // Au moins 1 idmg unprocessed
+    };
     let sort = doc! { "last_processed": 1 };
     let options = FindOptions::builder()
         .sort(sort)
-        .limit(5)
+        .limit(limit)
         .build();
 
     let mut curseur = collection.find(filtre, Some(options)).await?;
@@ -192,31 +261,30 @@ async fn get_batch_messages<M>(middleware: &M, idmg: &str)
     Ok(resultat)
 }
 
-async fn traiter_batch_messages<M>(middleware: &M, idmg_traitement: &str, messages_outgoing: &Vec<DocOutgointProcessing>)
-    -> Result<(), Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao
-{
-    debug!("pompe_messages.traiter_batch_messages Traiter batch {} messages", messages_outgoing.len());
-
-    let idmg_local = middleware.get_enveloppe_privee().idmg()?;
-    if idmg_local == idmg_traitement {
-        debug!("Traitement messages pour idmg local : {}", idmg_traitement);
-        for message in messages_outgoing {
-            if let Err(e) = pousser_message_local(middleware, message).await {
-                error!("traiter_batch_messages Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
-            }
-        }
-    } else {
-        for message in messages_outgoing {
-            if let Err(e) = pousser_message_vers_tiers(middleware, idmg_traitement, message).await {
-                error!("traiter_batch_messages Erreur traitement pousser_message_vers_tiers idmg {}, message {} : {:?}",
-                    idmg_traitement, message.uuid_transaction, e);
-            }
-        }
-    };
-
-    Ok(())
-}
+// async fn traiter_batch_messages<M>(middleware: &M, local: bool, messages_outgoing: &Vec<DocOutgointProcessing>)
+//     -> Result<(), Box<dyn Error>>
+//     where M: GenerateurMessages + MongoDao
+// {
+//     debug!("pompe_messages.traiter_batch_messages Traiter batch {} messages", messages_outgoing.len());
+//
+//     if  {
+//         debug!("Traitement messages pour idmg local : {}", idmg_traitement);
+//         for message in messages_outgoing {
+//             if let Err(e) = pousser_message_local(middleware, message).await {
+//                 error!("traiter_batch_messages Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
+//             }
+//         }
+//     } else {
+//         for message in messages_outgoing {
+//             if let Err(e) = pousser_message_vers_tiers(middleware, message).await {
+//                 error!("traiter_batch_messages Erreur traitement pousser_message_vers_tiers idmg {}, message {} : {:?}",
+//                     idmg_traitement, message.uuid_transaction, e);
+//             }
+//         }
+//     };
+//
+//     Ok(())
+// }
 
 /// Pousse des messages locaux. Transfere le contenu dans la reception de chaque destinataire.
 async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
@@ -315,35 +383,9 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<Ma
     for key in keys_to_remove {
         val_message.remove(key.as_str());
     }
+
     debug!("Message mappe : {:?}", val_message);
     Ok(val_message)
-
-    // match serde_json::to_value(doc_message) {
-    //     Ok(v) => match v.as_object() {
-    //         Some(o) => {
-    //             match o.get("message") {
-    //                 Some(doc_message) => {
-    //                     let mut val = doc_message.to_owned();
-    //                     let mut keys_to_remove = Vec::new();
-    //                     for key in val.keys() {
-    //                         if key.starts_with("_") && key != "_signature" && key != "_bcc" {
-    //                             keys_to_remove.push(key.to_owned());
-    //                         }
-    //                     }
-    //                     for key in keys_to_remove {
-    //                         val.remove(key.as_str());
-    //                     }
-    //                     debug!("Message mappe : {:?}", val);
-    //
-    //                     Ok(val)
-    //                 },
-    //                 None => Err(format!("Erreur sauvegarde transaction, mauvais type objet JSON"))
-    //             }
-    //         },
-    //         None => Err(format!("Erreur sauvegarde transaction, mauvais type objet JSON"))
-    //     },
-    //     Err(e) => Err(format!("Erreur sauvegarde transaction, conversion : {:?}", e))
-    // }
 }
 
 pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
@@ -388,33 +430,64 @@ pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, id
     }
 }
 
-async fn pousser_message_vers_tiers<M>(middleware: &M, idmg_traitement: &str, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao
+async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
     debug!("Pousser message : {:?}", message);
     let uuid_transaction = message.uuid_transaction.as_str();
 
-    let mapping: &DocMappingIdmg = if let Some(m) = message.idmgs_mapping.as_ref() {
-        match m.get(idmg_traitement) {
-            Some(m) => Ok(m),
-            None => Err(format!("Aucun mapping trouve dans message {} pour idmg tiers {}", uuid_transaction, idmg_traitement))
-        }
-    } else {
-        Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_traitement))
-    }?;
+    let idmg_local = middleware.idmg();
 
-    // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
-    let destinataires = {
-        let mut destinataires = mapper_destinataires(message, mapping);
-        destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
+    let mapping: Vec<IdmgMappingDestinataires> = {
+        let mut mapping = Vec::new();
+        match message.idmgs_mapping.as_ref() {
+            Some(mappings) => {
+                for (idmg, doc_mapping_idmg) in mappings.iter() {
+                    if idmg == idmg_local { continue; } // Skip local
+
+                    let destinataires = {
+                        let mut destinataires = mapper_destinataires(message, doc_mapping_idmg);
+                        destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
+                    };
+
+                    let mut mapping_idmg = IdmgMappingDestinataires {
+                        idmg: idmg.clone(),
+                        mapping: doc_mapping_idmg.to_owned(),
+                        destinataires,
+                    };
+
+                    mapping.push(mapping_idmg);
+                }
+            },
+            None => Err(format!("pompe_message.pousser_message_vers_tiers Aucun mapping tiers"))?
+        }
+        mapping
     };
+
+    // if let Some(m) = message.idmgs_mapping.as_ref() {
+    //     match m.get(idmg_traitement) {
+    //         Some(m) => Ok(m),
+    //         None => Err(format!("Aucun mapping trouve dans message {} pour idmg tiers {}", uuid_transaction, idmg_traitement))
+    //     }
+    // } else {
+    //     Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_traitement))
+    // }?;
+
+    // // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
+    // let destinataires = {
+    //     let mut destinataires = mapper_destinataires(message, mapping);
+    //     destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
+    // };
 
     // Charger transaction message mappee via serde
     let message_a_transmettre = charger_message(middleware, uuid_transaction).await?;
 
     // Emettre commande recevoir
-    let commande = CommandeRecevoirPost{ message: message_a_transmettre, destinataires: destinataires.clone() };
-    debug!("pousser_message_vers_tiers Pousser vers idmg {} message {:?}", idmg_traitement, commande);
+    let commande = CommandePostmasterPoster{
+        message: message_a_transmettre,
+        destinations: mapping
+    };
+    debug!("pousser_message_vers_tiers Pousser message vers tiers {:?}", commande);
 
     let routage = RoutageMessageAction::builder("postmaster", "poster")
         .exchanges(vec![L1Public])
@@ -423,7 +496,11 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, idmg_traitement: &str, me
 
     // TODO Fix marquer traitement apres upload
     warn!{"Marquer message pousse - TODO fix, simulation seulement"};
-    marquer_outgoing_resultat(middleware, uuid_transaction, idmg_traitement, &destinataires, true, 201).await?;
+    for destination in &commande.destinations {
+        let idmg_traitement = destination.idmg.as_str();
+        let destinataires = &destination.destinataires;
+        marquer_outgoing_resultat(middleware, uuid_transaction, idmg_traitement, &destinataires, true, 201).await?;
+    }
 
     Ok(())
 }
