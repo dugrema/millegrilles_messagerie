@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::Arc;
 
@@ -10,6 +10,8 @@ use log::{debug, error, info, warn};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::ValidateurX509;
+use millegrilles_common_rust::chiffrage::rechiffrer_asymetrique_multibase;
+use millegrilles_common_rust::chiffrage_cle::requete_charger_cles;
 use millegrilles_common_rust::constantes::{Securite, SECURITE_2_PRIVE};
 use millegrilles_common_rust::constantes::Securite::{L1Public, L2Prive};
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
@@ -312,7 +314,7 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     };
 
     // Charger transaction message mappee via serde
-    let message_a_transmettre = charger_message(middleware, uuid_transaction).await?;
+    let (message_a_transmettre, _) = charger_message(middleware, uuid_transaction).await?;
 
     // Emettre commande recevoir
     let commande = CommandeRecevoirPost{ message: message_a_transmettre, destinataires: destinataires.clone(), };
@@ -354,7 +356,7 @@ fn mapper_destinataires(message: &DocOutgointProcessing, mapping: &DocMappingIdm
     destinataires
 }
 
-async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<Map<String, Value>, String>
+async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(Map<String, Value>, CommandePoster), String>
     where M: MongoDao
 {
     let collection_transactions = middleware.get_collection(NOM_COLLECTION_TRANSACTIONS)?;
@@ -369,6 +371,11 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<Ma
 
     // Preparer message a transmettre. Enlever elements
     debug!("Message a transmettre : {:?}", doc_message);
+    let message_mappe: CommandePoster = match convertir_bson_deserializable(doc_message.clone()) {
+        Ok(m) => Ok(m),
+        Err(e) => Err(format!("pompe_message.charger_message Erreur mapping message -> CommandePoster : {:?}", e))
+    }?;
+
     let commande: CommandeRecevoirPost = match convertir_bson_deserializable(doc_message) {
         Ok(c) => Ok(c),
         Err(e) => Err(format!("pompe_messages.charger_message Erreur chargement transaction message : {:?}", e))
@@ -386,7 +393,7 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<Ma
     }
 
     debug!("Message mappe : {:?}", val_message);
-    Ok(val_message)
+    Ok((val_message, message_mappe))
 }
 
 pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
@@ -440,11 +447,30 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
 
     let idmg_local = middleware.idmg();
 
+    // Charger transaction message mappee via serde
+    let (message_a_transmettre, message_mappe) = charger_message(middleware, uuid_transaction).await?;
+
+    // Recuperer cle du message
+    let hachage_bytes = vec![message_mappe.message.hachage_bytes.clone()];
+    let cle_message = requete_charger_cles(middleware, &hachage_bytes).await?;
+    debug!("Recu cle message rechiffree : {:?}", cle_message);
+    let cle_message_info = match &cle_message.cles {
+        Some(c) => {
+            match c.get(message_mappe.message.hachage_bytes.as_str()) {
+                Some(c) => Ok(c),
+                None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante dans reponse MaitreDesCles pour message {}", uuid_message))
+            }
+        },
+        None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante pour message {}", uuid_message))
+    }?;
+    let cle_message_str = cle_message_info.cle.as_str();
+    let enveloppe_privee = middleware.get_enveloppe_privee();
+    let cle_privee = enveloppe_privee.cle_privee();
+
     let mapping: Vec<IdmgMappingDestinataires> = {
         let mut mapping = Vec::new();
         match message.idmgs_mapping.as_ref() {
             Some(mappings) => {
-
                 let idmgs_unprocessed = match &message.idmgs_unprocessed {
                     Some(i) => i,
                     None => {
@@ -483,6 +509,41 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                         None => continue  // Rien a faire
                     };
 
+                    // Rechiffrer la cle du message
+                    let certs_chiffrage = match &fiche.chiffrage {
+                        Some(c) => c,
+                        None => {
+                            info!("Certificat de chiffrage manquant pour {}, on skip", idmg);
+                            continue;
+                        }
+                    };
+                    let ca_pem = match &fiche.ca {
+                        Some(c) => c,
+                        None => {
+                            info!("Certificat CA manquant pour {}, on skip", idmg);
+                            continue
+                        }
+                    };
+
+                    let mut cles_rechiffrees = HashMap::new();
+                    for cert_chiffrage in certs_chiffrage {
+                        let cert = middleware.charger_enveloppe(
+                            cert_chiffrage, None, Some(ca_pem.as_str())).await?;
+                        let fingerprint = cert.fingerprint.clone();
+                        let cle_publique = &cert.cle_publique;
+                        let cle_rechiffree = match rechiffrer_asymetrique_multibase(
+                            cle_privee, cle_publique, cle_message_str) {
+                            Ok(k) => k,
+                            Err(e) => {
+                                error!("Erreur rechiffrage cle message {} pour idmg {}", uuid_message, idmg);
+                                continue
+                            }
+                        };
+                        cles_rechiffrees.insert(fingerprint, cle_rechiffree);
+                    }
+
+                    debug!("Cles rechiffrees pour idmg {}: {:?}", idmg, cles_rechiffrees);
+
                     let destinataires = {
                         let mut destinataires = mapper_destinataires(message, doc_mapping_idmg);
                         destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
@@ -493,6 +554,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                         mapping: doc_mapping_idmg.to_owned(),
                         destinataires,
                         fiche,
+                        cles: cles_rechiffrees,
                     };
 
                     mapping.push(mapping_idmg);
@@ -519,9 +581,6 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
         }
         mapping
     };
-
-    // Charger transaction message mappee via serde
-    let message_a_transmettre = charger_message(middleware, uuid_transaction).await?;
 
     // Emettre commande recevoir
     let commande = CommandePostmasterPoster{

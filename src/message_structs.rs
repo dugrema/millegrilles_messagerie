@@ -205,6 +205,7 @@ pub struct IdmgMappingDestinataires {
     pub mapping: DocMappingIdmg,
     pub destinataires: Vec<String>,
     pub fiche: FicheMillegrilleApplication,
+    pub cles: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
