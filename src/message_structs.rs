@@ -26,6 +26,7 @@ pub struct DocMappingIdmg {
 #[derive(Clone, Debug, Deserialize)]
 pub struct DocOutgointProcessing {
     pub uuid_transaction: String,
+    pub uuid_message: String,
     pub destinataires: Option<Vec<DocDestinataire>>,
     pub user_id: Option<String>,
     pub dns_unresolved: Option<Vec<String>>,

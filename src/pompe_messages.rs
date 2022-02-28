@@ -436,6 +436,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
 {
     debug!("Pousser message : {:?}", message);
     let uuid_transaction = message.uuid_transaction.as_str();
+    let uuid_message = message.uuid_message.as_str();
 
     let idmg_local = middleware.idmg();
 
@@ -539,7 +540,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     for destination in &commande.destinations {
         let idmg_traitement = destination.idmg.as_str();
         let destinataires = &destination.destinataires;
-        marquer_outgoing_resultat(middleware, uuid_transaction, idmg_traitement, &destinataires, true, 401).await?;
+        marquer_outgoing_resultat(middleware, uuid_message, idmg_traitement, &destinataires, true, 500).await?;
     }
 
     Ok(())
