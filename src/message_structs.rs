@@ -123,6 +123,8 @@ pub struct CommandePostmasterPoster {
     pub message: Map<String, Value>,
     pub destinations: Vec<IdmgMappingDestinataires>,
     pub cle_info: MetaInformationCle,
+    pub certificat_message: Vec<String>,
+    pub certificat_millegrille: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

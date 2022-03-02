@@ -450,6 +450,15 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     // Charger transaction message mappee via serde
     let (message_a_transmettre, message_mappe) = charger_message(middleware, uuid_transaction).await?;
 
+    // Charger certificat utilise dans le message
+    let certificat_message: Vec<String> = {
+        let fingerprint = message_mappe.message.fingerprint_certificat.as_str();
+        match middleware.get_certificat(fingerprint).await {
+            Some(c) => Ok(c.get_pem_vec().iter().map(|p| p.pem.clone()).collect()),
+            None => Err(format!("pompe_messages.pousser_message_vers_tiers Certificat {} manquant pour message {}", fingerprint, uuid_message))
+        }
+    }?;
+
     // Recuperer cle du message
     let hachage_bytes = vec![message_mappe.message.hachage_bytes.clone()];
     let cle_message = requete_charger_cles(middleware, &hachage_bytes).await?;
@@ -564,22 +573,6 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                     mapping.push(mapping_idmg);
                 }
 
-                // for (idmg, doc_mapping_idmg) in mappings.iter() {
-                //     if idmg == idmg_local { continue; } // Skip local
-                //
-                //     let destinataires = {
-                //         let mut destinataires = mapper_destinataires(message, doc_mapping_idmg);
-                //         destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
-                //     };
-                //
-                //     let mut mapping_idmg = IdmgMappingDestinataires {
-                //         idmg: idmg.clone(),
-                //         mapping: doc_mapping_idmg.to_owned(),
-                //         destinataires,
-                //     };
-                //
-                //     mapping.push(mapping_idmg);
-                // }
             },
             None => Err(format!("pompe_message.pousser_message_vers_tiers Aucun mapping tiers"))?
         }
@@ -590,7 +583,9 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     let commande = CommandePostmasterPoster{
         message: message_a_transmettre,
         destinations: mapping,
-        cle_info: cle_message_info.clone().into()
+        cle_info: cle_message_info.clone().into(),
+        certificat_message,
+        certificat_millegrille: middleware.ca_pem().into(),
     };
     debug!("pousser_message_vers_tiers Pousser message vers tiers {:?}", commande);
 
