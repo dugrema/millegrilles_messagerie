@@ -510,7 +510,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                     };
 
                     // Rechiffrer la cle du message
-                    let certs_chiffrage = match &fiche.chiffrage {
+                    let mut certs_chiffrage = match fiche.chiffrage.clone() {
                         Some(c) => c,
                         None => {
                             info!("Certificat de chiffrage manquant pour {}, on skip", idmg);
@@ -518,7 +518,11 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                         }
                     };
                     let ca_pem = match &fiche.ca {
-                        Some(c) => c,
+                        Some(c) => {
+                            // Injecter dans la liste des certs_chiffrage (cle de millegrille)
+                            certs_chiffrage.push(vec![c.clone()]);
+                            c
+                        },
                         None => {
                             info!("Certificat CA manquant pour {}, on skip", idmg);
                             continue
@@ -526,7 +530,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                     };
 
                     let mut cles_rechiffrees = HashMap::new();
-                    for cert_chiffrage in certs_chiffrage {
+                    for cert_chiffrage in &certs_chiffrage {
                         let cert = middleware.charger_enveloppe(
                             cert_chiffrage, None, Some(ca_pem.as_str())).await?;
                         let fingerprint = cert.fingerprint.clone();
