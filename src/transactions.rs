@@ -290,7 +290,14 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
             }
         },
         false => {
-            todo!("Verifier message idmg tiers");
+            let options_validation = ValidationOptions::new(true, true, true);
+            let resultat_validation = match message_recevoir_serialise.valider(middleware, Some(&options_validation)).await {
+                Ok(r) => Ok(r),
+                Err(e) => Err(format!("transactions.transaction_recevoir Erreur durant la validation du message : {:?}", e))
+            }?;
+            if ! resultat_validation.valide() {
+                Err(format!("Erreur validation message : {:?}", resultat_validation))?;
+            }
         }
     }
 
