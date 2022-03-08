@@ -319,6 +319,21 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         Some(options_unprocessed)
     ).await?;
 
+    // Index dns_unresolved
+    let options_dns_unresolved = IndexOptions {
+        nom_index: Some(String::from("dns_unresolved")),
+        unique: false
+    };
+    let champs_index_dns_unresolved = vec!(
+        ChampIndex {nom_champ: String::from("created"), direction: 1},
+        ChampIndex {nom_champ: String::from("dns_unresolved"), direction: 1},
+    );
+    middleware.create_index(
+        NOM_COLLECTION_OUTGOING_PROCESSING,
+        champs_index_dns_unresolved,
+        Some(options_dns_unresolved)
+    ).await?;
+
     // Index user_id, uuid_transaction pour messages incoming
     let options_incoming_userid = IndexOptions {
         nom_index: Some(String::from("userid_uuidtransaction")),

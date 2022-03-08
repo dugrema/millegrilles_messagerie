@@ -117,6 +117,7 @@ impl PompeMessages {
         traiter_dns_unresolved(middleware, trigger).await;
         traiter_messages_locaux(middleware, trigger).await;
         traiter_messages_tiers(middleware, trigger).await;
+        expirer_messages(middleware, trigger).await;
         Ok(())
     }
 }
@@ -223,48 +224,36 @@ async fn traiter_messages_tiers<M>(middleware: &M, trigger: &MessagePompe)
     }
 }
 
+async fn expirer_messages<M>(middleware: &M, trigger: &MessagePompe)
+    where M: MongoDao
+{
+    debug!("expirer_messages");
+    if let Err(e) = expirer_message_work(middleware, trigger).await {
+        error!("expirer_messages Erreur traitement expirer messages : {:?}", e);
+    }
+}
 
-// async fn get_batch_idmgs<M>(middleware: &M, trigger: &MessagePompe)
-//     -> Result<Vec<String>, Box<dyn Error>>
-//     where M: MongoDao
-// {
-//     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
-//
-//     let mut filtre = doc! {};
-//     if let Some(idmgs) = &trigger.idmgs {
-//         filtre.insert("idmgs_unprocessed", doc! {"$all": idmgs});
-//     }
-//
-//     let options = AggregateOptions::builder()
-//         .build();
-//
-//     let pipeline = vec! [
-//         // Match sur les idmgs specifies au besoin. Limiter matching si grande quantite en attente.
-//         doc! {"$match": filtre},
-//         // Expansion de tous les idmgs par message
-//         doc! {"$unwind": {"path": "$idmgs_unprocessed"}},
-//         // Grouper par date last_processed, permet d'aller chercher les plus vieux messages
-//         doc! {"$group": {"_id": "$idmgs_unprocessed", "last_date": {"$min": "$last_processed"}}},
-//         // Plus vieux en premier
-//         doc! {"$sort": {"last_date": 1}},
-//         // Mettre une limite dans la batch de retour
-//         doc! {"$limit": 1},
-//     ];
-//     debug!("pompe_messages.get_batch_idmgs Pipeline idmgs a loader : {:?}", pipeline);
-//
-//     let mut curseur = collection.aggregate(pipeline, Some(options)).await?;
-//     let mut resultat: Vec<String> = Vec::new();
-//     while let Some(r) = curseur.next().await {
-//         let doc = r?;
-//         debug!("Result data : {:?}", doc);
-//         let idmg = doc.get_str("_id")?;
-//         resultat.push(idmg.into());
-//     }
-//
-//     debug!("pompe_messages.get_batch_idmgs Resultat : {:?}", resultat);
-//
-//     Ok(resultat)
-// }
+async fn expirer_message_work<M>(middleware: &M, trigger: &MessagePompe) -> Result<(), Box<dyn Error>>
+    where M: MongoDao
+{
+    // Expirer DNS unresolved pour messages crees il y a plus de 30 minutes
+    // Renommer dns_unresolved a dns_failure
+    let ts_expire = Utc::now() - Duration::minutes(30);
+    let filtre = doc! {
+        "created": {"$lt": ts_expire},
+        "dns_unresolved.0": {"$exists": true}
+    };
+    let ops = doc! {
+        "$rename": {"dns_unresolved": "dns_failure"},
+        "$currentDate": {CHAMP_LAST_PROCESSED: true},
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let result = collection.update_many(filtre, ops, None).await?;
+    debug!("expirer_message_work Resultat expirations : {:?}", result);
+
+    Ok(())
+}
 
 // Retourne une batch de messages non traites pour un idmg.
 // async fn get_batch_messages<M>(middleware: &M, idmg: &str)
@@ -286,7 +275,7 @@ async fn get_batch_messages<M>(middleware: &M, local: bool, limit: i64)
         },
         false => doc! { "idmgs_unprocessed.1": {"$exists": true} }   // Au moins 1 idmg unprocessed
     };
-    let sort = doc! { "last_processed": 1 };
+    let sort = doc! { CHAMP_LAST_PROCESSED: 1 };
     let options = FindOptions::builder()
         .sort(sort)
         .limit(limit)

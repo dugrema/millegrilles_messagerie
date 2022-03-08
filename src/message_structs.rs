@@ -35,6 +35,7 @@ pub struct DocOutgointProcessing {
     pub destinataires: Option<Vec<DocDestinataire>>,
     pub user_id: Option<String>,
     pub dns_unresolved: Option<Vec<String>>,
+    pub dns_failure: Option<Vec<String>>,
     pub idmgs_unprocessed: Option<Vec<String>>,
     pub idmgs_mapping: Option<HashMap<String, DocMappingIdmg>>,
 }

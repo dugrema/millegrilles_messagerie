@@ -57,3 +57,4 @@ pub const CHAMP_USER_ID: &str = "user_id";
 pub const CHAMP_DATE_RECEPTION: &str = "date_reception";
 pub const CHAMP_FLAG_LU: &str = "lu";
 pub const CHAMP_UUID_MESSAGE: &str = "uuid_message";
+pub const CHAMP_LAST_PROCESSED: &str = "last_processed";

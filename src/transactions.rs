@@ -246,7 +246,9 @@ async fn traiter_outgoing_resolved<M>(middleware: &M, reponse: &ReponseTopologie
         }
     }
 
-    emettre_evenement_pompe(middleware, Some(idmgs.into_iter().collect())).await?;
+    if ! idmgs.is_empty() {
+        emettre_evenement_pompe(middleware, Some(idmgs.into_iter().collect())).await?;
+    }
 
     Ok(())
 }
