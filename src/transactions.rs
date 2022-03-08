@@ -144,6 +144,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         "dns_unresolved": &dns_adresses,
         "idmgs_mapping": doc!{},
         "idmgs_unprocessed": Vec::<String>::new(),
+        "attachments": &transaction_poster.message.attachments,
         "created": chrono::Utc::now(),
     };
 

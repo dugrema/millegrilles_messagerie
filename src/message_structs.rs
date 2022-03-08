@@ -26,6 +26,7 @@ pub struct DocMappingIdmg {
     #[serde(default, with = "ts_seconds_option")]
     pub next_push_time: Option<DateTime<Utc>>,
     pub last_result_code: Option<u32>,
+    pub attachments_restants: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -35,9 +36,11 @@ pub struct DocOutgointProcessing {
     pub destinataires: Option<Vec<DocDestinataire>>,
     pub user_id: Option<String>,
     pub dns_unresolved: Option<Vec<String>>,
-    pub dns_failure: Option<Vec<String>>,
     pub idmgs_unprocessed: Option<Vec<String>>,
+    pub idmgs_attachments_unprocessed: Option<Vec<String>>,
     pub idmgs_mapping: Option<HashMap<String, DocMappingIdmg>>,
+    pub attachments: Option<Vec<String>>,
+    pub dns_failure: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -45,10 +48,8 @@ pub struct DocDestinataire {
     pub destinataire: String,
     pub user: Option<String>,
     pub dns: Option<String>,
-    // pub idmg: Option<String>,
     pub processed: Option<bool>,
     pub result: Option<i32>,
-    // pub retry: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
