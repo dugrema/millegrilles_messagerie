@@ -677,48 +677,6 @@ async fn incrementer_push<M>(middleware: &M, idmg: &str, uuid_transaction: &str)
     Ok(())
 }
 
-// async fn get_batch_idmgs<M>(middleware: &M, trigger: &MessagePompe)
-//     -> Result<Vec<String>, Box<dyn Error>>
-//     where M: MongoDao
-// {
-//     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
-//
-//     let mut filtre = doc! {};
-//     if let Some(idmgs) = &trigger.idmgs {
-//         filtre.insert("idmgs_unprocessed", doc! {"$all": idmgs});
-//     }
-//
-//     let options = AggregateOptions::builder()
-//         .build();
-//
-//     let pipeline = vec! [
-//         // Match sur les idmgs specifies au besoin. Limiter matching si grande quantite en attente.
-//         doc! {"$match": filtre},
-//         // Expansion de tous les idmgs par message
-//         doc! {"$unwind": {"path": "$idmgs_unprocessed"}},
-//         // Grouper par date last_processed, permet d'aller chercher les plus vieux messages
-//         doc! {"$group": {"_id": "$idmgs_unprocessed", "last_date": {"$min": "$last_processed"}}},
-//         // Plus vieux en premier
-//         doc! {"$sort": {"last_date": 1}},
-//         // Mettre une limite dans la batch de retour
-//         doc! {"$limit": 1},
-//     ];
-//     debug!("pompe_messages.get_batch_idmgs Pipeline idmgs a loader : {:?}", pipeline);
-//
-//     let mut curseur = collection.aggregate(pipeline, Some(options)).await?;
-//     let mut resultat: Vec<String> = Vec::new();
-//     while let Some(r) = curseur.next().await {
-//         let doc = r?;
-//         debug!("Result data : {:?}", doc);
-//         let idmg = doc.get_str("_id")?;
-//         resultat.push(idmg.into());
-//     }
-//
-//     debug!("pompe_messages.get_batch_idmgs Resultat : {:?}", resultat);
-//
-//     Ok(resultat)
-// }
-
 async fn get_batch_uuid_transactions<M>(middleware: &M, trigger: &MessagePompe)
     -> Result<Vec<String>, Box<dyn Error>>
     where M: MongoDao

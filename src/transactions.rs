@@ -222,7 +222,6 @@ async fn traiter_outgoing_resolved<M>(middleware: &M, reponse: &ReponseTopologie
                 Some(i) => i,
                 None => {
                     info!("traiter_outgoing_resolved DNS inconnu : {:?}", dns);
-                    // TODO Marquer tentative pour DNS, compteur retry
                     continue
                 }
             };
