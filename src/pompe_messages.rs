@@ -28,6 +28,7 @@ use millegrilles_common_rust::tokio_stream::StreamExt;
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::message_structs::*;
+use crate::transactions::emettre_requete_resolve;
 
 pub async fn traiter_cedule<M>(middleware: &M, trigger: &MessageCedule)
                                -> Result<(), Box<dyn Error>>
@@ -113,9 +114,73 @@ impl PompeMessages {
         -> Result<(), Box<dyn Error>>
         where M: ValidateurX509 + GenerateurMessages + MongoDao
     {
+        traiter_dns_unresolved(middleware, trigger).await;
         traiter_messages_locaux(middleware, trigger).await;
         traiter_messages_tiers(middleware, trigger).await;
         Ok(())
+    }
+}
+
+async fn traiter_dns_unresolved<M>(middleware: &M, trigger: &MessagePompe)
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    debug!("traiter_dns_unresolved");
+
+    let mut curseur = {
+        let filtre = doc! { "dns_unresolved.1": {"$exists": true} };
+
+        let limit = 1000;
+        let sort = doc! { "created": 1 };
+        let options = FindOptions::builder().sort(sort).limit(limit).build();
+
+        let collection = match middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING) {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Erreur preparation collection {} : {:?}", NOM_COLLECTION_OUTGOING_PROCESSING, e);
+                return
+            }
+        };
+
+        match collection.find(filtre, Some(options)).await {
+            Ok(c) => c,
+            Err(e) => {
+                error!("traiter_dns_unresolved Erreur requete mongodb : {:?}", e);
+                return
+            }
+        }
+    };
+
+    let mut resultat: Vec<DocOutgointProcessing> = Vec::new();
+    while let Some(r) = curseur.next().await {
+        let message_outgoing: DocOutgointProcessing = match r {
+            Ok(d) => {
+                match convertir_bson_deserializable(d) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        error!("traiter_dns_unresolved Erreur mapping DocOutgointProcessing : {:?}", e);
+                        continue
+                    }
+                }
+            },
+            Err(e) => {
+                error!("traiter_dns_unresolved Erreur lecture curseur : {:?}", e);
+                break  // Skip reste du curseur
+            }
+        };
+
+        let uuid_transaction = message_outgoing.uuid_transaction.as_str();
+        match message_outgoing.dns_unresolved.as_ref() {
+            Some(dns) => {
+                debug!("Nouvelle tentative de resolve pour message uuid_transaction:{}, DNS : {:?}", uuid_transaction, dns);
+                match emettre_requete_resolve(middleware, uuid_transaction, &dns).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        error!("Erreur emission requete resolve pour message uuid_transaction:{}, DNS : {:?}, err: {:?}", uuid_transaction, dns, e);
+                    }
+                }
+            },
+            None => ()
+        }
     }
 }
 

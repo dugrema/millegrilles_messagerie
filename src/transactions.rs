@@ -167,7 +167,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
 
     // Emettre requete resolve vers CoreTopologie
     // emettre_evenement_maj_fichier(middleware, &tuuid).await?;
-    match emettre_requete_resolve(gestionnaire, middleware, uuid_transaction, &dns_adresses).await {
+    match emettre_requete_resolve(middleware, uuid_transaction, &dns_adresses).await {
         Ok(()) => (),
         Err(e) => Err(format!("transactions.transaction_poster Erreur requete resolve idmg {:?}", e))?,
     }
@@ -175,7 +175,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     middleware.reponse_ok()
 }
 
-async fn emettre_requete_resolve<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, uuid_transaction: &str, dns: &Vec<String>)
+pub async fn emettre_requete_resolve<M>(middleware: &M, uuid_transaction: &str, dns: &Vec<String>)
     -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao
 {
@@ -196,7 +196,7 @@ async fn emettre_requete_resolve<M>(gestionnaire: &GestionnaireMessagerie, middl
             debug!("Reponse resolve idmg : {:?}", r);
             let contenu: ReponseTopologieResolveIdmg = r.message.parsed.map_contenu(None)?;
             debug!("Reponse resolve idmg contenu parsed : {:?}", contenu);
-            traiter_outgoing_resolved(gestionnaire, middleware, &contenu).await?;
+            traiter_outgoing_resolved(middleware, &contenu).await?;
         },
         _ => Err(format!("Erreur resolve idmg, mauvais type de reponse"))?
     }
@@ -204,7 +204,7 @@ async fn emettre_requete_resolve<M>(gestionnaire: &GestionnaireMessagerie, middl
     Ok(())
 }
 
-async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, reponse: &ReponseTopologieResolveIdmg)
+async fn traiter_outgoing_resolved<M>(middleware: &M, reponse: &ReponseTopologieResolveIdmg)
     -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao
 {
@@ -217,7 +217,16 @@ async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, mid
 
         let ts_courant = Utc::now().timestamp();
 
-        for (dns, idmg) in d {
+        for (dns, idmg_option) in d {
+            let idmg = match idmg_option {
+                Some(i) => i,
+                None => {
+                    info!("traiter_outgoing_resolved DNS inconnu : {:?}", dns);
+                    // TODO Marquer tentative pour DNS, compteur retry
+                    continue
+                }
+            };
+
             idmgs.insert(idmg.to_owned());
 
             let filtre = doc! {"dns_unresolved": {"$all": [dns]}};

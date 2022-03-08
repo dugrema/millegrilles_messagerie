@@ -16,7 +16,7 @@ pub struct RequeteTopologieResolveIdmg {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ReponseTopologieResolveIdmg {
-    pub dns: Option<HashMap<String, String>>
+    pub dns: Option<HashMap<String, Option<String>>>
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
