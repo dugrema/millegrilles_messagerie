@@ -214,13 +214,17 @@ async fn traiter_outgoing_resolved<M>(gestionnaire: &GestionnaireMessagerie, mid
     let mut idmgs: HashSet<String> = HashSet::new();
 
     if let Some(d) = &reponse.dns {
+
+        let ts_courant = Utc::now().timestamp();
+
         for (dns, idmg) in d {
             idmgs.insert(idmg.to_owned());
 
             let filtre = doc! {"dns_unresolved": {"$all": [dns]}};
             let ops = doc! {
                 "$set": {
-                    format!("idmgs_mapping.{}.retry", idmg): 0,
+                    format!("idmgs_mapping.{}.push_count", idmg): 0,
+                    format!("idmgs_mapping.{}.next_push_time", idmg): ts_courant,
                 },
                 "$addToSet": {
                     format!("idmgs_mapping.{}.dns", idmg): dns,

@@ -12,7 +12,8 @@ use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::ValidateurX509;
 use millegrilles_common_rust::chiffrage::rechiffrer_asymetrique_multibase;
 use millegrilles_common_rust::chiffrage_cle::requete_charger_cles;
-use millegrilles_common_rust::constantes::{Securite, SECURITE_2_PRIVE};
+use millegrilles_common_rust::chrono::{Duration, Utc};
+use millegrilles_common_rust::constantes::{CHAMP_MODIFICATION, Securite, SECURITE_2_PRIVE};
 use millegrilles_common_rust::constantes::Securite::{L1Public, L2Prive};
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
@@ -112,34 +113,8 @@ impl PompeMessages {
         -> Result<(), Box<dyn Error>>
         where M: ValidateurX509 + GenerateurMessages + MongoDao
     {
-        // let idmgs = get_batch_idmgs(middleware, trigger).await?;
-        // for idmg in idmgs {
-        //     let batch = get_batch_messages(middleware, idmg.as_str()).await?;
-        //     debug!("Traiter batch messages : {:?}", batch);
-        //     traiter_batch_messages(middleware, idmg.as_str(), &batch).await?;
-        // }
-
         traiter_messages_locaux(middleware, trigger).await;
         traiter_messages_tiers(middleware, trigger).await;
-
-        // // Traitement messages locaux, traiter grande quantite puisque c'est local
-        // {
-        //     let batch = get_batch_messages(middleware, true, 1000).await?;
-        //     debug!("Traiter batch messages locaux : {:?}", batch);
-        //     for message in messages_outgoing {
-        //         if let Err(e) = pousser_message_local(middleware, message).await {
-        //             error!("traiter_batch_messages Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
-        //         }
-        //     }
-        // }
-        //
-        // // Traitement messages tiers
-        // {
-        //     let batch = get_batch_messages(middleware, false, 10).await?;
-        //     debug!("Traiter batch messages vers tiers : {:?}", batch);
-        //     traiter_batch_messages(middleware, false, &batch).await?;
-        // }
-
         Ok(())
     }
 }
@@ -235,6 +210,8 @@ async fn get_batch_messages<M>(middleware: &M, local: bool, limit: i64)
     debug!("pompe_messages.get_batch_messages");
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
 
+    let ts_courant = Utc::now().timestamp();
+
     let idmg_local = middleware.idmg();
     let filtre = match local {
         true => {
@@ -264,31 +241,6 @@ async fn get_batch_messages<M>(middleware: &M, local: bool, limit: i64)
     Ok(resultat)
 }
 
-// async fn traiter_batch_messages<M>(middleware: &M, local: bool, messages_outgoing: &Vec<DocOutgointProcessing>)
-//     -> Result<(), Box<dyn Error>>
-//     where M: GenerateurMessages + MongoDao
-// {
-//     debug!("pompe_messages.traiter_batch_messages Traiter batch {} messages", messages_outgoing.len());
-//
-//     if  {
-//         debug!("Traitement messages pour idmg local : {}", idmg_traitement);
-//         for message in messages_outgoing {
-//             if let Err(e) = pousser_message_local(middleware, message).await {
-//                 error!("traiter_batch_messages Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
-//             }
-//         }
-//     } else {
-//         for message in messages_outgoing {
-//             if let Err(e) = pousser_message_vers_tiers(middleware, message).await {
-//                 error!("traiter_batch_messages Erreur traitement pousser_message_vers_tiers idmg {}, message {} : {:?}",
-//                     idmg_traitement, message.uuid_transaction, e);
-//             }
-//         }
-//     };
-//
-//     Ok(())
-// }
-
 /// Pousse des messages locaux. Transfere le contenu dans la reception de chaque destinataire.
 async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao
@@ -298,6 +250,10 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
 
     // Mapping idmg local
     let idmg_local = middleware.get_enveloppe_privee().idmg()?;
+
+    // Incrementer compteur, mettre next push a 15 minutes (en cas d'echec)
+    incrementer_push(middleware, idmg_local.as_str(), uuid_transaction).await?;
+
     let mapping: &DocMappingIdmg = if let Some(m) = message.idmgs_mapping.as_ref() {
         match m.get(idmg_local.as_str()) {
             Some(m) => Ok(m),
@@ -325,9 +281,6 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     // TODO - Mettre pompe sur sa propre Q, blocking true
     middleware.transmettre_commande(routage, &commande, false).await?;
     // debug!("Reponse commande message local : {:?}", reponse);
-
-    // TODO - Fix verif confirmation. Ici on assume un succes
-    //marquer_outgoing_resultat(middleware, uuid_transaction, &destinataires, true, 201).await?;
 
     Ok(())
 }
@@ -400,7 +353,6 @@ pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, id
                                           -> Result<(), String>
     where M: GenerateurMessages + MongoDao
 {
-    // let idmg_local = middleware.get_enveloppe_privee().idmg()?;
     debug!("Marquer idmg {} comme pousse pour message {}", idmg, uuid_message);
 
     // Marquer process comme succes pour reception sur chaque usager
@@ -413,19 +365,25 @@ pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, id
         .array_filters(array_filters.clone())
         .build();
 
+    let mut set_ops = doc!{
+        format!("idmgs_mapping.{}.last_result_code", &idmg): result_code,
+        "destinataires.$[dest].processed": processed,
+        "destinataires.$[dest].result": result_code,
+    };
+
+    if ! processed {
+        let next_push = (Utc::now() + Duration::minutes(5)).timestamp();
+        set_ops.insert(format!("idmgs_mapping.{}.next_push_time", idmg), next_push);
+    }
+
     let mut ops = doc! {
-        // "$pull": {"idmgs_unprocessed": &idmg_local},
-        "$set": {
-            "destinataires.$[dest].processed": processed,
-            "destinataires.$[dest].result": result_code,
-        },
+        "$set": set_ops,
         "$currentDate": {"last_processed": true}
     };
+
     if processed {
         ops.insert("$pull", doc!{"idmgs_unprocessed": &idmg});
-    } else {
-        // Incrementer retry count
-        todo!("Incrementer retry count");
+        ops.insert("$unset", doc!{ format!("idmgs_mapping.{}.next_push_time", idmg): true });
     }
 
     debug!("marquer_outgoing_resultat Filtre maj outgoing : {:?}, ops: {:?}, array_filters : {:?}", filtre_outgoing, ops, array_filters);
@@ -513,6 +471,10 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
 
                 for fiche in fiches_applications.fiches {
                     let idmg = fiche.idmg.as_str();
+
+                    // Incrementer compteur, mettre next push a 15 minutes (en cas d'echec)
+                    incrementer_push(middleware, idmg, uuid_transaction).await?;
+
                     let doc_mapping_idmg = match mappings.get(idmg) {
                         Some(d) => d,
                         None => continue  // Rien a faire
@@ -595,12 +557,32 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     middleware.transmettre_commande(routage, &commande, false).await?;
 
     // TODO Fix marquer traitement apres upload
-    warn!{"Marquer message pousse - TODO fix, simulation seulement"};
-    for destination in &commande.destinations {
-        let idmg_traitement = destination.idmg.as_str();
-        let destinataires = &destination.destinataires;
-        marquer_outgoing_resultat(middleware, uuid_message, idmg_traitement, &destinataires, true, 500).await?;
-    }
+    // warn!{"Marquer message pousse - TODO fix, simulation seulement"};
+    // for destination in &commande.destinations {
+    //     let idmg_traitement = destination.idmg.as_str();
+    //     let destinataires = &destination.destinataires;
+    //     marquer_outgoing_resultat(middleware, uuid_message, idmg_traitement, &destinataires, true, 500).await?;
+    // }
+
+    Ok(())
+}
+
+async fn incrementer_push<M>(middleware: &M, idmg: &str, uuid_transaction: &str) -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    let next_push = (Utc::now() + Duration::minutes(15)).timestamp();
+    let ops = doc!{
+        "$set": {
+            format!("idmgs_mapping.{}.next_push_time", idmg): next_push,
+        },
+        "$inc": {
+            format!("idmgs_mapping.{}.push_count", idmg): 1,
+        },
+        "$currentDate": {"last_processed": true}
+    };
+    let filtre = doc!{ "uuid_transaction": uuid_transaction };
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    collection.update_one(filtre, ops, None).await?;
 
     Ok(())
 }

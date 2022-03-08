@@ -3,7 +3,8 @@ use log::debug;
 use millegrilles_common_rust::chiffrage_cle::MetaInformationCle;
 
 use millegrilles_common_rust::chrono;
-use millegrilles_common_rust::chrono::Utc;
+use millegrilles_common_rust::chrono::{DateTime, Utc};
+use millegrilles_common_rust::chrono::serde::ts_seconds_option;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
@@ -21,7 +22,10 @@ pub struct ReponseTopologieResolveIdmg {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocMappingIdmg {
     pub dns: Option<Vec<String>>,
-    pub retry: Option<u32>,
+    pub push_count: Option<u32>,
+    #[serde(with = "ts_seconds_option")]
+    pub next_push_time: Option<DateTime<Utc>>,
+    pub last_result_code: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -40,10 +44,10 @@ pub struct DocDestinataire {
     pub destinataire: String,
     pub user: Option<String>,
     pub dns: Option<String>,
-    pub idmg: Option<String>,
+    // pub idmg: Option<String>,
     pub processed: Option<bool>,
     pub result: Option<i32>,
-    pub retry: Option<u32>,
+    // pub retry: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
