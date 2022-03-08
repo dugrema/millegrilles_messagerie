@@ -207,33 +207,56 @@ async fn traiter_messages_locaux<M>(middleware: &M, trigger: &MessagePompe)
 async fn traiter_messages_tiers<M>(middleware: &M, trigger: &MessagePompe)
     where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
-    let batch = match get_batch_messages(middleware, false, 10).await {
-        Ok(b) => b,
+    match traiter_messages_tiers_work(middleware, trigger).await {
+        Ok(()) => (),
         Err(e) => {
-            error!("traiter_messages_locaux Erreur traitement pousser_message_local : {:?}", e);
-            return
-        }
-    };
-
-    debug!("Traiter batch messages vers tiers : {:?}", batch);
-    for message in &batch {
-        if let Err(e) = pousser_message_vers_tiers(middleware, message).await {
-            error!("traiter_batch_messages Erreur traitement pousser_message_vers_tiers message {} : {:?}",
-                message.uuid_transaction, e);
+            error!("traiter_messages_tiers Erreur traitement message : {:?}", e);
         }
     }
+}
+
+async fn traiter_messages_tiers_work<M>(middleware: &M, trigger: &MessagePompe)
+    -> Result<(), Box<dyn Error>>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    let batch = get_batch_uuid_transactions(middleware, trigger).await?;
+    debug!("Traiter batch messages vers tiers : {:?}", batch);
+
+    let filtre = doc! {"uuid_transaction": {"$in": batch}};
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let mut curseur = collection.find(filtre, None).await?;
+    while let Some(r) = curseur.next().await {
+        let doc = r?;
+        debug!("traiter_messages_tiers_work Result data : {:?}", doc);
+        let message_outgoing: DocOutgointProcessing = match convertir_bson_deserializable(doc) {
+            Ok(m) => m,
+            Err(e) => {
+                error!("traiter_messages_tiers_work Erreur mapping message {:?}", e);
+                continue
+            }
+        };
+        if let Err(e) = pousser_message_vers_tiers(middleware, &message_outgoing).await {
+            error!("traiter_batch_messages Erreur traitement pousser_message_vers_tiers message {} : {:?}",
+                message_outgoing.uuid_transaction, e);
+        }
+    }
+
+    Ok(())
 }
 
 async fn expirer_messages<M>(middleware: &M, trigger: &MessagePompe)
     where M: MongoDao
 {
     debug!("expirer_messages");
-    if let Err(e) = expirer_message_work(middleware, trigger).await {
-        error!("expirer_messages Erreur traitement expirer messages : {:?}", e);
+    if let Err(e) = expirer_message_resolve(middleware, trigger).await {
+        error!("expirer_messages Erreur traitement expirer messages unresolved : {:?}", e);
+    }
+    if let Err(e) = expirer_message_retry(middleware, trigger).await {
+        error!("expirer_messages Erreur traitement expirer messages retry : {:?}", e);
     }
 }
 
-async fn expirer_message_work<M>(middleware: &M, trigger: &MessagePompe) -> Result<(), Box<dyn Error>>
+async fn expirer_message_resolve<M>(middleware: &M, trigger: &MessagePompe) -> Result<(), Box<dyn Error>>
     where M: MongoDao
 {
     // Expirer DNS unresolved pour messages crees il y a plus de 30 minutes
@@ -488,6 +511,8 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     let enveloppe_privee = middleware.get_enveloppe_privee();
     let cle_privee = enveloppe_privee.cle_privee();
 
+    let ts_courant = Utc::now();
+
     let mapping: Vec<IdmgMappingDestinataires> = {
         let mut mapping = Vec::new();
         match message.idmgs_mapping.as_ref() {
@@ -533,6 +558,17 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                         Some(d) => d,
                         None => continue  // Rien a faire
                     };
+
+                    // Verifier si on doit attendre
+                    match doc_mapping_idmg.next_push_time {
+                        Some(t) => {
+                            if t > ts_courant {
+                                debug!("Skip {} pour {}, on doit attendre l'expiration de next_push_time a {:?}", uuid_transaction, idmg, t);
+                                continue
+                            }
+                        },
+                        None => ()
+                    }
 
                     // Rechiffrer la cle du message
                     let mut certs_chiffrage = match fiche.chiffrage.clone() {
@@ -637,6 +673,168 @@ async fn incrementer_push<M>(middleware: &M, idmg: &str, uuid_transaction: &str)
     let filtre = doc!{ "uuid_transaction": uuid_transaction };
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     collection.update_one(filtre, ops, None).await?;
+
+    Ok(())
+}
+
+// async fn get_batch_idmgs<M>(middleware: &M, trigger: &MessagePompe)
+//     -> Result<Vec<String>, Box<dyn Error>>
+//     where M: MongoDao
+// {
+//     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+//
+//     let mut filtre = doc! {};
+//     if let Some(idmgs) = &trigger.idmgs {
+//         filtre.insert("idmgs_unprocessed", doc! {"$all": idmgs});
+//     }
+//
+//     let options = AggregateOptions::builder()
+//         .build();
+//
+//     let pipeline = vec! [
+//         // Match sur les idmgs specifies au besoin. Limiter matching si grande quantite en attente.
+//         doc! {"$match": filtre},
+//         // Expansion de tous les idmgs par message
+//         doc! {"$unwind": {"path": "$idmgs_unprocessed"}},
+//         // Grouper par date last_processed, permet d'aller chercher les plus vieux messages
+//         doc! {"$group": {"_id": "$idmgs_unprocessed", "last_date": {"$min": "$last_processed"}}},
+//         // Plus vieux en premier
+//         doc! {"$sort": {"last_date": 1}},
+//         // Mettre une limite dans la batch de retour
+//         doc! {"$limit": 1},
+//     ];
+//     debug!("pompe_messages.get_batch_idmgs Pipeline idmgs a loader : {:?}", pipeline);
+//
+//     let mut curseur = collection.aggregate(pipeline, Some(options)).await?;
+//     let mut resultat: Vec<String> = Vec::new();
+//     while let Some(r) = curseur.next().await {
+//         let doc = r?;
+//         debug!("Result data : {:?}", doc);
+//         let idmg = doc.get_str("_id")?;
+//         resultat.push(idmg.into());
+//     }
+//
+//     debug!("pompe_messages.get_batch_idmgs Resultat : {:?}", resultat);
+//
+//     Ok(resultat)
+// }
+
+async fn get_batch_uuid_transactions<M>(middleware: &M, trigger: &MessagePompe)
+    -> Result<Vec<String>, Box<dyn Error>>
+    where M: MongoDao
+{
+    debug!("get_batch_uuid_transactions");
+
+    let limit = 10;
+
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+
+    let mut filtre = match &trigger.idmgs {
+        Some(idmgs) => {
+            // Utiliser la liste de IDMGs fournie
+            doc! {"idmgs_unprocessed": {"$all": idmgs}}
+        },
+        None => {
+            // Prendre tous les messages avec au moins 1 idmg unprocessed
+            doc! {"idmgs_unprocessed.0": {"$exists": true}}
+        }
+    };
+
+    let options = AggregateOptions::builder()
+        .build();
+
+    let ts_courant = Utc::now().timestamp();
+
+    let pipeline = vec! [
+        // Match sur les idmgs specifies au besoin. Limiter matching si grande quantite en attente.
+        doc! {"$match": filtre},
+        doc! {"$limit": limit * 20},  // Limite quantite max a traiter (safety)
+
+        // Expansion de tous les idmgs par message
+        // Convertir idmgs_mapping en array, et faire unwind. Expose next_push_time.
+        doc! {"$project": {
+            "uuid_transaction": 1,
+            // "last_processed": true,
+            "idmgs_mapping": {"$objectToArray": "$idmgs_mapping"}
+        }},
+        doc! { "$unwind": {"path": "$idmgs_mapping"} },
+        doc! { "$match": {"idmgs_mapping.v.next_push_time": {"$lte": ts_courant}} },
+
+        // // Grouper par date last_processed, permet d'aller chercher les plus vieux messages
+        doc! {"$group": {"_id": "$uuid_transaction", "next_date": {"$min": "$idmgs_mapping.v.next_push_time"}}},
+
+        // // Plus vieux en premier
+        doc! {"$sort": {"next_date": 1}},
+
+        // // Mettre une limite dans la batch de retour
+        doc! {"$limit": limit},
+    ];
+    debug!("get_batch_uuid_transactions Pipeline idmgs a loader : {:?}", pipeline);
+
+    let mut curseur = collection.aggregate(pipeline, Some(options)).await?;
+    let mut resultat: Vec<String> = Vec::new();
+    while let Some(r) = curseur.next().await {
+        let doc = r?;
+        debug!("get_batch_uuid_transactions Result data : {:?}", doc);
+        let uuid_transaction = doc.get_str("_id")?;
+        resultat.push(uuid_transaction.into());
+    }
+
+    debug!("get_batch_uuid_transactions Resultat : {:?}", resultat);
+
+    Ok(resultat)
+}
+
+async fn expirer_message_retry<M>(middleware: &M, trigger: &MessagePompe) -> Result<(), Box<dyn Error>>
+    where M: MongoDao
+{
+    const RETRY_LIMIT: i32 = 3;
+
+    let options = AggregateOptions::builder().build();
+
+    let pipeline = vec! [
+        // Match sur les idmgs specifies au besoin. Limiter matching si grande quantite en attente.
+        doc! {"$match": {"idmgs_unprocessed.0": {"$exists": true}} },
+        doc! {"$limit": 1000},  // Limite quantite max a traiter (safety)
+
+        // Expansion de tous les idmgs par message
+        // Convertir idmgs_mapping en array, et faire unwind. Expose next_push_time.
+        doc! {"$project": {
+            "uuid_transaction": 1,
+            "idmgs_mapping": {"$objectToArray": "$idmgs_mapping"}
+        }},
+        doc! { "$unwind": {"path": "$idmgs_mapping"} },
+
+        // Plus vieux en premier
+        doc! {"$match": {"idmgs_mapping.v.push_count": {"$gte": RETRY_LIMIT} }},
+
+        doc! {"$project": {
+            "uuid_transaction": 1,
+            "idmg": "$idmgs_mapping.k",
+            "push_count": "$idmgs_mapping.v.push_count",
+        }},
+
+        // Mettre une limite dans la batch de retour
+        doc! {"$limit": 5000},
+    ];
+    debug!("expirer_message_retry Pipeline idmgs a invalider : {:?}", pipeline);
+
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let mut curseur = collection.aggregate(pipeline, Some(options)).await?;
+    while let Some(r) = curseur.next().await {
+        let doc = r?;
+        debug!("expirer_message_retry Result a expirer : {:?}", doc);
+        let uuid_transaction = doc.get_str("uuid_transaction")?;
+        let idmg = doc.get_str("idmg")?;
+
+        let filtre = doc! { "uuid_transaction": uuid_transaction };
+        let ops = doc! {
+            "$pull": {"idmgs_unprocessed": &idmg},
+            "$unset": {format!("idmgs_mapping.{}.next_push_time", idmg): true}
+        };
+
+        collection.update_one(filtre, ops, None).await?;
+    }
 
     Ok(())
 }

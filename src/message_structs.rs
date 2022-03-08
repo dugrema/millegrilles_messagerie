@@ -23,7 +23,7 @@ pub struct ReponseTopologieResolveIdmg {
 pub struct DocMappingIdmg {
     pub dns: Option<Vec<String>>,
     pub push_count: Option<u32>,
-    #[serde(with = "ts_seconds_option")]
+    #[serde(default, with = "ts_seconds_option")]
     pub next_push_time: Option<DateTime<Utc>>,
     pub last_result_code: Option<u32>,
 }
