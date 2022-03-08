@@ -194,11 +194,11 @@ pub fn preparer_queues() -> Vec<QueueType> {
         // rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L3Protege});
     }
 
-    let commandes_protegees: Vec<&str> = vec![
-        // COMMANDE_INDEXER,
+    let commandes_publiques: Vec<&str> = vec![
+        COMMANDE_CONFIRMER_TRANSMISSION,
     ];
-    for cmd in commandes_protegees {
-        rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L3Protege});
+    for cmd in commandes_publiques {
+        rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L1Public});
     }
 
     let evenements_secure: Vec<&str> = vec![ EVENEMENT_POMPE_POSTE ];

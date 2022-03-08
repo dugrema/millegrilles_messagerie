@@ -351,7 +351,7 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(M
 
 pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
                                           -> Result<(), String>
-    where M: GenerateurMessages + MongoDao
+    where M: MongoDao
 {
     debug!("Marquer idmg {} comme pousse pour message {}", idmg, uuid_message);
 

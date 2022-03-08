@@ -24,6 +24,8 @@ pub const REQUETE_GET_PERMISSION_MESSAGES: &str = "getPermissionMessages";
 pub const REQUETE_GET_PROFIL: &str = "getProfil";
 pub const REQUETE_GET_CONTACTS: &str = "getContacts";
 
+pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
+
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";
 pub const TRANSACTION_INITIALISER_PROFIL: &str = "initialiserProfil";

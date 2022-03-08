@@ -24,6 +24,7 @@ use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
 use crate::transactions::*;
 use crate::message_structs::*;
+use crate::pompe_messages::marquer_outgoing_resultat;
 
 pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -51,6 +52,9 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
 
     match m.action.as_str() {
         // Commandes standard
+        COMMANDE_CONFIRMER_TRANSMISSION => commande_confirmer_transmission(middleware, m, gestionnaire).await,
+
+        // Transactions
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
         TRANSACTION_RECEVOIR => commande_recevoir(middleware, m, gestionnaire).await,
         TRANSACTION_INITIALISER_PROFIL => commande_initialiser_profil(middleware, m, gestionnaire).await,
@@ -246,4 +250,34 @@ async fn commande_lu<M>(middleware: &M, m: MessageValideAction, gestionnaire: &G
 
     // Traiter la transaction
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: MongoDao
+{
+    debug!("commande_confirmer_transmission Consommer commande : {:?}", & m.message);
+    let commande: CommandeConfirmerTransmission = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_confirmer_transmission Commande parsed : {:?}", commande);
+
+    let uuid_message = commande.uuid_message.as_str();
+    let idmg = commande.idmg.as_str();
+
+    let destinataires = match commande.destinataires.as_ref() {
+        Some(d) => {
+            d.iter().map(|d| d.destinataire.clone()).collect()
+        },
+        None => Vec::new()
+    };
+
+    let result_code = commande.code as u32;
+    let processed = match &commande.code {
+        200 => true,
+        201 => true,
+        _ => false
+    };
+
+    marquer_outgoing_resultat(middleware, uuid_message, idmg, &destinataires, processed, result_code).await?;
+
+    Ok(None)
 }

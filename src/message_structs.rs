@@ -236,3 +236,17 @@ pub struct FicheApplication {
     pub url: String,
     pub version: Option<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeConfirmerTransmission {
+    pub code: i32,
+    pub idmg: String,
+    pub uuid_message: String,
+    pub destinataires: Option<Vec<ConfirmerDestinataire>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfirmerDestinataire {
+    pub code: i32,
+    pub destinataire: String,
+}
