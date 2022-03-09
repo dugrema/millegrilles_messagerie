@@ -8,7 +8,7 @@ use millegrilles_common_rust::chrono::Utc;
 use millegrilles_common_rust::constantes::Securite;
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::GenerateurMessages;
-use millegrilles_common_rust::mongo_dao::MongoDao;
+use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
@@ -16,7 +16,7 @@ use millegrilles_common_rust::tokio_stream::StreamExt;
 use crate::constantes::*;
 use crate::message_structs::*;
 use crate::gestionnaire::GestionnaireMessagerie;
-use crate::pompe_messages::evenement_pompe_poste;
+use crate::pompe_messages::{evenement_pompe_poste, verifier_fin_transferts_attachments};
 
 pub async fn consommer_evenement<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: MessageValideAction)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -93,12 +93,13 @@ async fn evenement_upload_attachment<M>(middleware: &M, m: MessageValideAction)
         .build();
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     let doc_outgoing = collection.find_one_and_update(filtre, ops, Some(options)).await?;
-    let doc_outgoing = match doc_outgoing {
-        Some(d) => Ok(d),
+    let doc_outgoing: DocOutgointProcessing = match doc_outgoing {
+        Some(d) => Ok(convertir_bson_deserializable(d)?),
         None => {
             Err(format!("evenements.evenement_upload_attachment Evenement recu pour doc_outgoing inconnu"))
         }
     }?;
+    verifier_fin_transferts_attachments(middleware, &doc_outgoing).await?;
 
     Ok(None)
 }

@@ -831,3 +831,61 @@ async fn expirer_message_retry<M>(middleware: &M, trigger: &MessagePompe) -> Res
 
     Ok(())
 }
+
+pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
+    where M: MongoDao
+{
+    debug!("verifier_fin_transferts_attachments pour {:?}", doc_outgoing);
+    let idmgs_processing = match &doc_outgoing.idmgs_attachments_unprocessed {
+        Some(d) => d,
+        None => return Ok(())  // Rien a faire
+    };
+
+    // Verifier s'il reste au moins un transfert pending/en_cours pour chaque idmg
+    let mut idmgs_completes: Vec<String> = Vec::new();
+    for idmg in idmgs_processing {
+        if let Some(i) = &doc_outgoing.idmgs_mapping {
+            if let Some(m) = i.get(idmg) {
+                let len_restants = match &m.attachments_restants {
+                    Some(a) => a.len(),
+                    None => 0
+                };
+                let len_en_cours = match &m.attachments_en_cours {
+                    Some(a) => a.len(),
+                    None => 0
+                };
+
+                let total_attachments_incomplets = len_restants + len_en_cours;
+                debug!("verifier_fin_transferts_attachments Nombre attachements incomplets: {}", total_attachments_incomplets);
+
+                if total_attachments_incomplets == 0 {
+                    idmgs_completes.push(idmg.into());
+                }
+            } else {
+                warn!("verifier_fin_transferts_attachments idmgs_mapping pour {} n'existe pas dans {}, on le retire implicitement",
+                    idmg, doc_outgoing.uuid_message);
+                idmgs_completes.push(idmg.into());
+            }
+        } else {
+            warn!("verifier_fin_transferts_attachments idmgs_mapping n'existe pas dans {}, on le retire implicitement",
+                doc_outgoing.uuid_message);
+            idmgs_completes.push(idmg.into());
+        }
+    }
+
+    let filtre = doc! { CHAMP_UUID_MESSAGE: &doc_outgoing.uuid_message };
+    let mut unset_ops = doc! {};
+    // for idmg in idmgs_completes {
+    //     unset_ops.insert(format!("idmgs_mapping.{}.attachments_restants", idmg), true);
+    //     unset_ops.insert(format!("idmgs_mapping.{}.attachments_en_cours", idmg), true);
+    // }
+    let ops = doc! {
+        // "$unset": unset_ops,
+        "$pull": {"idmgs_attachments_unprocessed": {"$in": &idmgs_completes}},
+        "$currentDate": {CHAMP_LAST_PROCESSED: true},
+    };
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    collection.update_one(filtre, ops, None).await?;
+
+    Ok(())
+}
