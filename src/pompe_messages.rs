@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use millegrilles_common_rust::tokio::sync::mpsc;
 use millegrilles_common_rust::tokio::sync::mpsc::{Receiver, Sender};
-use millegrilles_common_rust::mongodb::options::{AggregateOptions, CountOptions, FindOptions, Hint, UpdateOptions};
+use millegrilles_common_rust::mongodb::options::{AggregateOptions, CountOptions, FindOneAndUpdateOptions, FindOptions, Hint, UpdateOptions};
 
 use log::{debug, error, info, warn};
 use millegrilles_common_rust::async_trait::async_trait;
@@ -428,17 +428,18 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(M
 
 pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
                                           -> Result<(), String>
-    where M: MongoDao
+    where M: ValidateurX509 + MongoDao
 {
     debug!("Marquer idmg {} comme pousse pour message {}", idmg, uuid_message);
 
     // Marquer process comme succes pour reception sur chaque usager
     let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     let filtre_outgoing = doc! { CHAMP_UUID_MESSAGE: uuid_message };
+
     let array_filters = vec! [
         doc! {"dest.destinataire": {"$in": destinataires }}
     ];
-    let options = UpdateOptions::builder()
+    let options = FindOneAndUpdateOptions::builder()
         .array_filters(array_filters.clone())
         .build();
 
@@ -464,13 +465,39 @@ pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, id
     }
 
     debug!("marquer_outgoing_resultat Filtre maj outgoing : {:?}, ops: {:?}, array_filters : {:?}", filtre_outgoing, ops, array_filters);
-    match collection_outgoing_processing.update_one(filtre_outgoing, ops, Some(options)).await {
+    let doc_outgoing = match collection_outgoing_processing.find_one_and_update(filtre_outgoing.clone(), ops, Some(options)).await {
         Ok(resultat) => {
             debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg, uuid_message, resultat);
-            Ok(())
+            Ok(resultat)
         },
         Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur sauvegarde transaction, conversion : {:?}", e))
+    }?;
+
+    let idmg_local = middleware.idmg();
+
+    if idmg != idmg_local {
+        if let Some(d) = doc_outgoing {
+            let doc_mappe: DocOutgointProcessing = match convertir_bson_deserializable(d) {
+                Ok(d) => Ok(d),
+                Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur conversion DocOutgoingProcessing : {:?}", e))
+            }?;
+            if let Some(a) = doc_mappe.attachments {
+                // Ajouter attachments au mapping du idmg pour transfert
+                let ops = doc! {
+                    "$set": {format!("idmgs_mapping.{}.attachments_restants", idmg): &a},
+                    "$addToSet": {"idmgs_attachments_unprocessed": &idmg},
+                };
+                match collection_outgoing_processing.update_one(filtre_outgoing, ops, None).await {
+                    Ok(_r) => Ok(()),
+                    Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur update message pour upload attachments : {:?}", e))
+                }?
+
+                // TODO Emettre trigger pour uploader les fichiers
+            }
+        }
     }
+
+    Ok(())
 }
 
 async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>

@@ -254,7 +254,7 @@ async fn commande_lu<M>(middleware: &M, m: MessageValideAction, gestionnaire: &G
 
 async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: MongoDao
+    where M: ValidateurX509 + MongoDao
 {
     debug!("commande_confirmer_transmission Consommer commande : {:?}", & m.message);
     let commande: CommandeConfirmerTransmission = m.message.get_msg().map_contenu(None)?;
