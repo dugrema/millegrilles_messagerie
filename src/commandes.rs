@@ -53,6 +53,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
     match m.action.as_str() {
         // Commandes standard
         COMMANDE_CONFIRMER_TRANSMISSION => commande_confirmer_transmission(middleware, m, gestionnaire).await,
+        COMMANDE_PROCHAIN_ATTACHMENT => commande_prochain_attachment(middleware, m, gestionnaire).await,
 
         // Transactions
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
@@ -280,4 +281,77 @@ async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideActi
     marquer_outgoing_resultat(middleware, uuid_message, idmg, &destinataires, processed, result_code).await?;
 
     Ok(None)
+}
+
+async fn commande_prochain_attachment<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: ValidateurX509 + MongoDao + GenerateurMessages
+{
+    debug!("commande_confirmer_transmission Consommer commande : {:?}", & m.message);
+    let commande: CommandeProchainAttachment = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_confirmer_transmission Commande parsed : {:?}", commande);
+
+    let uuid_message = commande.uuid_message.as_str();
+    let idmg = commande.idmg_destination.as_str();
+
+    let filtre = doc! { CHAMP_UUID_MESSAGE: uuid_message };
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let doc_outgoing: DocOutgointProcessing = {
+        let doc_outgoing = collection.find_one(filtre.clone(), None).await?;
+        match doc_outgoing {
+            Some(d) => convertir_bson_deserializable(d)?,
+            None => {
+                warn!("commande_prochain_attachment Aucun message correspondant trouve (uuid_message: {})", uuid_message);
+                return Ok(Some(middleware.formatter_reponse(&json!({"ok": false, "err": "Aucun message correspondant"}), None)?))
+            }
+        }
+    };
+
+    // Determiner s'il reste des attachments a uploader
+    let mapping = match &doc_outgoing.idmgs_mapping {
+        Some(m) => match m.get(idmg) {
+            Some(m) => m,
+            None => {
+                warn!("commande_prochain_attachment Idmg {} non mappe pour message uuid_message: {}", idmg, uuid_message);
+                return Ok(Some(middleware.formatter_reponse(&json!({"ok": false, "err": "Idmg non mappe pour le fichier (1)"}), None)?))
+            }
+        },
+        None => {
+            warn!("commande_prochain_attachment Aucun mapping de idmg pour message uuid_message: {}", uuid_message);
+            return Ok(Some(middleware.formatter_reponse(&json!({"ok": false, "err": "Idmg non mappe pour le fichier (2)"}), None)?))
+        }
+    };
+
+    let fuuid_attachment = match &mapping.attachments_restants {
+        Some(a) => {
+            if a.len() > 0 {
+                a.get(0).expect("attachment")
+            } else {
+                debug!("commande_prochain_attachment Aucun attachment disponible pour message uuid_message: {}", uuid_message);
+                return Ok(Some(middleware.formatter_reponse(&json!({"ok": false, "err": "Aucun attachment disponible"}), None)?))
+            }
+        },
+        None => {
+            warn!("commande_prochain_attachment Aucuns attachment mappes pour message uuid_message: {}", uuid_message);
+            return Ok(Some(middleware.formatter_reponse(&json!({"ok": false, "err": "Aucuns attachment mappes"}), None)?))
+        }
+    };
+
+    // Marquer l'attachment comme en cours
+    let ts_courant = Utc::now().timestamp();
+    let ops = doc! {
+        "$pull": {
+            format!("idmgs_mapping.{}.attachments_restants", idmg): fuuid_attachment,
+        },
+        "$set": {
+            format!("idmgs_mapping.{}.attachments_en_cours.{}", idmg, fuuid_attachment): {
+                "last_update": ts_courant,
+            },
+        }
+    };
+    collection.update_one(filtre, ops, None).await?;
+
+    // Repondre avec le fuuid
+    let reponse = ReponseProchainAttachment { fuuid: Some(fuuid_attachment.into()), ok: true };
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }

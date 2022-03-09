@@ -27,6 +27,14 @@ pub struct DocMappingIdmg {
     pub next_push_time: Option<DateTime<Utc>>,
     pub last_result_code: Option<u32>,
     pub attachments_restants: Option<Vec<String>>,
+    pub attachments_completes: Option<Vec<String>>,
+    pub attachments_en_cours: Option<HashMap<String, AttachmentEnCours>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AttachmentEnCours {
+    #[serde(default, with = "ts_seconds_option")]
+    pub last_update: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -257,4 +265,23 @@ pub struct ConfirmerDestinataire {
 pub struct CommandePousserAttachments {
     pub uuid_message: String,
     pub idmg_destination: String,
+}
+
+pub type CommandeProchainAttachment = CommandePousserAttachments;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseProchainAttachment {
+    pub fuuid: Option<String>,
+    pub ok: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EvenementUploadAttachment {
+    pub uuid_message: String,
+    pub idmg: String,
+    pub fuuid: String,
+    pub code: u32,
+    pub http_status: Option<u16>,
+    pub retry_after: Option<u32>,
+    pub complete: bool,
 }

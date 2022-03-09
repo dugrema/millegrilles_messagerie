@@ -195,6 +195,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     let commandes_publiques: Vec<&str> = vec![
         COMMANDE_CONFIRMER_TRANSMISSION,
+        COMMANDE_PROCHAIN_ATTACHMENT,
     ];
     for cmd in commandes_publiques {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L1Public});
@@ -204,6 +205,8 @@ pub fn preparer_queues() -> Vec<QueueType> {
     for cmd in evenements_secure {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L4Secure});
     }
+
+    rk_volatils.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_POSTMASTER, EVENEMENT_UPLOAD_ATTACHMENT), exchange: Securite::L1Public});
 
     let mut queues = Vec::new();
 

@@ -26,6 +26,7 @@ pub const REQUETE_GET_PROFIL: &str = "getProfil";
 pub const REQUETE_GET_CONTACTS: &str = "getContacts";
 
 pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
+pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";
@@ -36,6 +37,7 @@ pub const TRANSACTION_LU: &str = "lu";
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 
 pub const EVENEMENT_POMPE_POSTE: &str = "pompePoste";
+pub const EVENEMENT_UPLOAD_ATTACHMENT: &str = "evenementAttachment";
 
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";
@@ -59,3 +61,8 @@ pub const CHAMP_DATE_RECEPTION: &str = "date_reception";
 pub const CHAMP_FLAG_LU: &str = "lu";
 pub const CHAMP_UUID_MESSAGE: &str = "uuid_message";
 pub const CHAMP_LAST_PROCESSED: &str = "last_processed";
+
+pub const CODE_UPLOAD_DEBUT: u32 = 1;
+pub const CODE_UPLOAD_ENCOURS: u32 = 2;
+pub const CODE_UPLOAD_TERMINE: u32 = 3;
+pub const CODE_UPLOAD_ERREUR: u32 = 4;
