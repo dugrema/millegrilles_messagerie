@@ -41,10 +41,11 @@ where
         TRANSACTION_RECEVOIR |
         TRANSACTION_INITIALISER_PROFIL |
         TRANSACTION_MAJ_CONTACT |
-        TRANSACTION_LU => {
+        TRANSACTION_LU |
+        TRANSACTION_TRANSFERT_COMPLETE => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
-                false => Err(format!("transactions.consommer_transaction: Trigger cedule autorisation invalide (pas 4.secure)"))
+                false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
             }?;
         },
         _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", m.action))?,
@@ -66,6 +67,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_INITIALISER_PROFIL => transaction_initialiser_profil(gestionnaire, middleware, transaction).await,
         TRANSACTION_MAJ_CONTACT => transaction_maj_contact(gestionnaire, middleware, transaction).await,
         TRANSACTION_LU => transaction_lu(gestionnaire, middleware, transaction).await,
+        TRANSACTION_TRANSFERT_COMPLETE => transfert_complete(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
@@ -564,4 +566,44 @@ async fn transaction_lu<M, T>(gestionnaire: &GestionnaireMessagerie, middleware:
     };
 
     middleware.reponse_ok()
+}
+
+async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    debug!("transfert_complete Consommer transaction : {:?}", &transaction);
+
+    let transaction_mappee = match transaction.convertir::<TransactionTransfertComplete>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.transfert_complete Erreur conversion transaction : {:?}", e))?
+    };
+
+    let uuid_message = transaction_mappee.uuid_message.as_str();
+    let filtre = doc! {CHAMP_UUID_MESSAGE: uuid_message};
+    let mut unset_ops = doc!{};
+    if let Some(m) = transaction_mappee.message_complete {
+        if m {
+            unset_ops.insert("dns_unresolved", true);
+            unset_ops.insert("idmgs_unprocessed", true);
+        }
+    }
+
+    if let Some(a) = transaction_mappee.attachments_completes {
+        if a {
+            unset_ops.insert("idmgs_attachments_unprocessed", true);
+        }
+    }
+
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let ops = doc! {
+        "$unset": unset_ops,
+        "$currentDate": {CHAMP_LAST_PROCESSED: true},
+    };
+    if let Err(e) = collection.update_one(filtre, ops, None).await {
+        Err(format!("transactions.transfert_complete Erreur update pour transfert complete {} : {:?}", uuid_message, e))?;
+    }
+
+    Ok(None)
 }

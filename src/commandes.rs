@@ -62,8 +62,6 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         TRANSACTION_MAJ_CONTACT => commande_maj_contact(middleware, m, gestionnaire).await,
         TRANSACTION_LU => commande_lu(middleware, m, gestionnaire).await,
 
-        // COMMANDE_INDEXER => commande_reindexer(middleware, m, gestionnaire).await,
-
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, m.action))?,
     }

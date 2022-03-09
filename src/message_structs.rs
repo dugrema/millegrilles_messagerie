@@ -218,6 +218,13 @@ pub struct CommandeLu {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionTransfertComplete {
+    pub uuid_message: String,
+    pub message_complete: Option<bool>,
+    pub attachments_completes: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IdmgMappingDestinataires {
     pub idmg: String,
     pub mapping: DocMappingIdmg,

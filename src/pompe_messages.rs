@@ -245,7 +245,7 @@ async fn traiter_messages_tiers_work<M>(middleware: &M, trigger: &MessagePompe)
 }
 
 async fn expirer_messages<M>(middleware: &M, trigger: &MessagePompe)
-    where M: MongoDao
+    where M: MongoDao + GenerateurMessages
 {
     debug!("expirer_messages");
     if let Err(e) = expirer_message_resolve(middleware, trigger).await {
@@ -253,6 +253,9 @@ async fn expirer_messages<M>(middleware: &M, trigger: &MessagePompe)
     }
     if let Err(e) = expirer_message_retry(middleware, trigger).await {
         error!("expirer_messages Erreur traitement expirer messages retry : {:?}", e);
+    }
+    if let Err(e) = marquer_messages_completes(middleware).await {
+        error!("expirer_messages Erreur traitement marquer messages completes : {:?}", e);
     }
 }
 
@@ -886,6 +889,70 @@ pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing
     };
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     collection.update_one(filtre, ops, None).await?;
+
+    Ok(())
+}
+
+async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Error>>
+    where M: MongoDao + GenerateurMessages
+{
+    // Messages completes qui n'ont pas ete nettoyes
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+
+    let mut messages_completes = HashMap::new();
+    {
+        let filtre = doc! {
+            "idmgs_unprocessed": {"$exists": true},
+            "idmgs_unprocessed.0": {"$exists": false},
+        };
+        let mut curseur = collection.find(filtre, None).await?;
+        while let Some(d) = curseur.next().await {
+            let doc = d?;
+            let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
+            let uuid_message = doc_outgoing.uuid_message.clone();
+            let transaction = TransactionTransfertComplete {
+                uuid_message: doc_outgoing.uuid_message,
+                message_complete: Some(true),
+                attachments_completes: None
+            };
+            messages_completes.insert(uuid_message, transaction);
+            // middleware.soumettre_transaction(routage.clone(), &transaction, false).await?;
+        }
+    }
+
+    {
+        let filtre = doc! {
+            "idmgs_attachments_unprocessed": {"$exists": true},
+            "idmgs_attachments_unprocessed.0": {"$exists": false},
+        };
+        let mut curseur = collection.find(filtre, None).await?;
+        while let Some(d) = curseur.next().await {
+            let doc = d?;
+            let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
+            let uuid_message = doc_outgoing.uuid_message.clone();
+            match messages_completes.get_mut(uuid_message.as_str()) {
+                Some(t) => {
+                    t.attachments_completes = Some(true);
+                },
+                None => {
+                    let t = TransactionTransfertComplete {
+                        uuid_message: doc_outgoing.uuid_message,
+                        message_complete: None,
+                        attachments_completes: Some(true)
+                    };
+                    messages_completes.insert(uuid_message, t);
+                }
+            }
+        }
+    }
+
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_TRANSFERT_COMPLETE)
+        .exchanges(vec![Securite::L4Secure])
+        .build();
+
+    for transaction in messages_completes.values() {
+        middleware.soumettre_transaction(routage.clone(), transaction, false).await?;
+    }
 
     Ok(())
 }

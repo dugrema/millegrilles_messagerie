@@ -227,6 +227,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_INITIALISER_PROFIL,
         TRANSACTION_MAJ_CONTACT,
         TRANSACTION_LU,
+        TRANSACTION_TRANSFERT_COMPLETE,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {
