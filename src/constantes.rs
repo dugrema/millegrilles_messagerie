@@ -3,6 +3,7 @@ use millegrilles_common_rust::formatteur_messages::DateEpochSeconds;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 
 pub const DOMAINE_NOM: &str = "Messagerie";
+pub const DOMAINE_POSTMASTER: &str = "postmaster";
 pub const NOM_COLLECTION_TRANSACTIONS: &str = "Messagerie";
 pub const NOM_COLLECTION_INCOMING: &str = "Messagerie/incoming";
 // pub const NOM_COLLECTION_OUTGOING: &str = "Messagerie/outgoing";

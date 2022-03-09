@@ -428,7 +428,7 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(M
 
 pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
                                           -> Result<(), String>
-    where M: ValidateurX509 + MongoDao
+    where M: ValidateurX509 + MongoDao + GenerateurMessages
 {
     debug!("Marquer idmg {} comme pousse pour message {}", idmg, uuid_message);
 
@@ -490,9 +490,17 @@ pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, id
                 match collection_outgoing_processing.update_one(filtre_outgoing, ops, None).await {
                     Ok(_r) => Ok(()),
                     Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur update message pour upload attachments : {:?}", e))
-                }?
+                }?;
 
                 // TODO Emettre trigger pour uploader les fichiers
+                let commande = CommandePousserAttachments {
+                    uuid_message: uuid_message.into(),
+                    idmg_destination: idmg.into(),
+                };
+                let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, "pousserAttachment")
+                    .exchanges(vec![Securite::L1Public])
+                    .build();
+                middleware.transmettre_commande(routage, &commande, false).await?;
             }
         }
     }
@@ -668,7 +676,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     };
     debug!("pousser_message_vers_tiers Pousser message vers tiers {:?}", commande);
 
-    let routage = RoutageMessageAction::builder("postmaster", "poster")
+    let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, "poster")
         .exchanges(vec![L1Public])
         .build();
     middleware.transmettre_commande(routage, &commande, false).await?;

@@ -252,3 +252,9 @@ pub struct ConfirmerDestinataire {
     pub code: i32,
     pub destinataire: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandePousserAttachments {
+    pub uuid_message: String,
+    pub idmg_destination: String,
+}
