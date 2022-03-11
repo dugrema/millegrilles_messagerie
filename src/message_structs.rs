@@ -292,3 +292,13 @@ pub struct EvenementUploadAttachment {
     pub retry_after: Option<u32>,
     pub complete: bool,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParametresRequeteAttachmentRequis {
+    pub fuuids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseRequeteAttachmentRequis {
+    pub fuuids: HashMap<String, bool>,
+}

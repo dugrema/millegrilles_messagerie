@@ -175,6 +175,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         REQUETE_GET_PERMISSION_MESSAGES,
         REQUETE_GET_PROFIL,
         REQUETE_GET_CONTACTS,
+        REQUETE_ATTACHMENT_REQUIS,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
@@ -351,6 +352,20 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         NOM_COLLECTION_INCOMING,
         champs_incoming_userid,
         Some(options_incoming_userid)
+    ).await?;
+
+    // Index user_id, uuid_transaction pour messages incoming
+    let options_attachments_fuuids = IndexOptions {
+        nom_index: Some(String::from("attachments_fuuid")),
+        unique: false
+    };
+    let champs_attachments_fuuids = vec!(
+        ChampIndex {nom_champ: String::from("attachments"), direction: 1},
+    );
+    middleware.create_index(
+        NOM_COLLECTION_INCOMING,
+        champs_attachments_fuuids,
+        Some(options_attachments_fuuids)
     ).await?;
 
     Ok(())

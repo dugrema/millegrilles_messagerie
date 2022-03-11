@@ -15,7 +15,7 @@ use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageM
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, filtrer_doc_id, MongoDao};
 use millegrilles_common_rust::mongodb::Cursor;
-use millegrilles_common_rust::mongodb::options::{FindOptions, Hint, UpdateOptions};
+use millegrilles_common_rust::mongodb::options::{FindOneOptions, FindOptions, Hint, UpdateOptions};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::Value;
@@ -56,6 +56,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_GET_PERMISSION_MESSAGES => requete_get_permission_messages(middleware, message).await,
                 REQUETE_GET_PROFIL => requete_get_profil(middleware, message).await,
                 REQUETE_GET_CONTACTS => requete_get_contacts(middleware, message).await,
+                REQUETE_ATTACHMENT_REQUIS => requete_attachment_requis(middleware, message).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -292,4 +293,29 @@ async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
     debug!("get_profil Reponse {:?}", reponse);
 
     Ok(Some(reponse))
+}
+
+async fn requete_attachment_requis<M>(middleware: &M, m: MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_attachment_requis Message : {:?}", & m.message);
+    let requete: ParametresRequeteAttachmentRequis = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_attachment_requis parsed : {:?}", requete);
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let options = FindOneOptions::builder().projection(doc!{"_id": true}).build();
+
+    let mut reponse_fuuid: HashMap<String, bool> = HashMap::new();
+    for fuuid in &requete.fuuids {
+        let filtre = doc! {"attachments": fuuid};
+        let resultat = collection.find_one(filtre.clone(), Some(options.clone())).await?;
+        reponse_fuuid.insert(fuuid.into(), resultat.is_some());
+    }
+
+    let reponse = ReponseRequeteAttachmentRequis {
+        fuuids: reponse_fuuid,
+    };
+
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }
