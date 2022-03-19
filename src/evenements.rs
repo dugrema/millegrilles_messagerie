@@ -24,26 +24,24 @@ pub async fn consommer_evenement<M>(gestionnaire: &GestionnaireMessagerie, middl
 {
     debug!("gestionnaire.consommer_evenement Consommer evenement : {:?}", &m.message);
 
-    // Autorisation : doit etre de niveau 3.protege ou 4.secure
-    match m.verifier_exchanges(vec![Securite::L1Public]) {
-        true => {
-            match m.action.as_str() {
-                EVENEMENT_UPLOAD_ATTACHMENT => evenement_upload_attachment(middleware, m).await,
-                _ => Err(format!("gestionnaire.consommer_transaction: Mauvais type d'action pour un evenement 1.public : {}", m.action))?,
-            }
-        },
-        false => {
-            match m.verifier_exchanges(vec![Securite::L4Secure]) {
-                true => {
-                    match m.action.as_str() {
-                        EVENEMENT_POMPE_POSTE => evenement_pompe_poste(gestionnaire, middleware, &m).await,
-                        _ => Err(format!("gestionnaire.consommer_transaction: Mauvais type d'action pour un evenement 4.secure : {}", m.action))?,
-                    }
-                },
-                false => Err(format!("gestionnaire.consommer_evenement: Evenement invalide (pas 1.public ou 4.secure)"))?,
-            }
-        },
+    // Autorisation selon l'action
+    let niveau_securite_requis = match m.action.as_str() {
+        EVENEMENT_UPLOAD_ATTACHMENT => Ok(Securite::L1Public),
+        EVENEMENT_POMPE_POSTE => Ok(Securite::L4Secure),
+        _ => Err(format!("gestionnaire.consommer_evenement: Action inconnue : {}", m.action.as_str())),
+    }?;
+
+    if m.verifier_exchanges(vec![niveau_securite_requis.clone()]) {
+        match m.action.as_str() {
+            EVENEMENT_UPLOAD_ATTACHMENT => evenement_upload_attachment(middleware, m).await,
+            EVENEMENT_POMPE_POSTE => evenement_pompe_poste(gestionnaire, middleware, &m).await,
+            _ => Err(format!("gestionnaire.consommer_transaction: Mauvais type d'action pour un evenement 1.public : {}", m.action))?,
+        }
+    } else {
+        Err(format!("gestionnaire.consommer_evenement: Niveau de securite invalide pour action {} : doit etre {:?}",
+                    m.action.as_str(), niveau_securite_requis))?
     }
+
 }
 
 async fn evenement_upload_attachment<M>(middleware: &M, m: MessageValideAction)
