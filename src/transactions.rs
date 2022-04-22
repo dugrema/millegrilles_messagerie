@@ -192,6 +192,7 @@ pub async fn emettre_requete_resolve<M>(middleware: &M, uuid_transaction: &str, 
         dns: Some(dns.to_owned()),
     };
 
+    debug!("transactions.emettre_requete_resolve Demande resolve : {:?}", requete);
     let reponse = middleware.transmettre_requete(routage, &requete).await?;
     debug!("transactions.emettre_requete_resolve Reponse resolve topologie : {:?}", reponse);
     match reponse {
