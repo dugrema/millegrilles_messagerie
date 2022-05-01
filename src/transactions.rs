@@ -10,6 +10,7 @@ use millegrilles_common_rust::bson::{Array, Bson};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
+use millegrilles_common_rust::constantes::Securite::L2Prive;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_transaction_recue};
@@ -498,7 +499,8 @@ async fn transaction_maj_contact<M, T>(gestionnaire: &GestionnaireMessagerie, mi
     if let Some(uc) = transaction_contact.uuid_contact {
         filtre.insert("uuid_contact", &uc);
     }
-    let options = UpdateOptions::builder()
+    let options = FindOneAndUpdateOptions::builder()
+        .return_document(ReturnDocument::After)
         .upsert(true)
         .build();
     let ops = doc! {
@@ -507,10 +509,23 @@ async fn transaction_maj_contact<M, T>(gestionnaire: &GestionnaireMessagerie, mi
         "$currentDate": {CHAMP_MODIFICATION: true},
     };
 
-    match collection.update_one(filtre, ops, options).await {
-        Ok(_) => (),
+    let contact = match collection.find_one_and_update(filtre, ops, options).await {
+        Ok(c) => c,
         Err(e) => Err(format!("transactions.transaction_maj_contact Erreur conversion transaction en bson : {:?}", e))?
     };
+
+    if let Some(c) = contact {
+        // Emettre evenement contact
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MAJ_CONTACT)
+            .exchanges(vec![L2Prive])
+            .partition(user_id)
+            .build();
+        let contact_mappe: Contact = match convertir_bson_deserializable(c) {
+            Ok(c) => c,
+            Err(e) => Err(format!("transactions.transaction_maj_contact Erreur convertir_bson_deserializable contact : {:?}", e))?
+        };
+        middleware.emettre_evenement(routage, &contact_mappe).await?;
+    }
 
     middleware.reponse_ok()
 }
