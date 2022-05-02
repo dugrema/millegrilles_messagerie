@@ -190,6 +190,7 @@ pub struct ParametresGetContacts {
     pub limit: Option<i64>,
     pub skip: Option<u64>,
     pub uuid_contacts: Option<Vec<String>>,
+    pub sort_key: Option<SortKey>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -301,4 +302,10 @@ pub struct ParametresRequeteAttachmentRequis {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReponseRequeteAttachmentRequis {
     pub fuuids: HashMap<String, bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SortKey {
+    pub colonne: String,
+    pub ordre: Option<i32>,
 }

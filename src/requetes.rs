@@ -256,6 +256,15 @@ async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
     let contacts = {
         let mut contacts = Vec::new();
 
+        let sort_key = match requete.sort_key {
+            Some(s) => s,
+            None => SortKey { colonne: "nom".into(), ordre: None }
+        };
+        let ordre = match sort_key.ordre {
+            Some(o) => o,
+            None => 1,
+        };
+
         let limit = match requete.limit {
             Some(l) => l,
             None => 100
@@ -266,7 +275,7 @@ async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
         };
         let opts = FindOptions::builder()
             // .hint(Hint::Name(String::from("fichiers_activite_recente")))
-            .sort(doc! {CHAMP_NOM_USAGER: 1, CHAMP_USER_ID: 1})
+            .sort(doc! {sort_key.colonne: ordre, CHAMP_USER_ID: 1})
             .limit(limit)
             .skip(skip)
             .build();
