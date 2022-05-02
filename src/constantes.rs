@@ -41,6 +41,7 @@ pub const TRANSACTION_TRANSFERT_COMPLETE: &str = "transfertComplete";
 pub const EVENEMENT_POMPE_POSTE: &str = "pompePoste";
 pub const EVENEMENT_UPLOAD_ATTACHMENT: &str = "evenementAttachment";
 pub const EVENEMENT_MAJ_CONTACT: &str = "majContact";
+pub const EVENEMENT_NOUVEAU_MESSAGE: &str = "nouveauMessage";
 
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";

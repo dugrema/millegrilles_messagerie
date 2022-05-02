@@ -285,14 +285,14 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     }?;
     let idmg_local = middleware.get_enveloppe_privee().idmg()?;
     let idmg_message = message_recevoir_serialise.get_entete().idmg.as_str();
-    let uuid_message = message_recevoir_serialise.get_entete().uuid_transaction.as_str();
+    let uuid_message = message_recevoir_serialise.get_entete().uuid_transaction.clone();
     match idmg_local.as_str() == idmg_message {
         true => {
             // Marquer le message comme traiter dans "outgoing local"
             let destinataires = message_recevoir.destinataires.clone();
             marquer_outgoing_resultat(
                 middleware,
-                uuid_message,
+                uuid_message.as_str(),
                 idmg_local.as_str(),
                 &destinataires,
                 true,
@@ -392,8 +392,19 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     "hachage_bytes": &hachage_bytes,
                     "attachments": &attachments,
                 };
-                if let Err(e) = collection.insert_one(doc_user_reception, None).await {
+
+                if let Err(e) = collection.insert_one(&doc_user_reception, None).await {
                     Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
+                }
+
+                // Evenement de nouveau message pour front-end
+                if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
+                    // let message_mappe: MessageIncoming =
+                    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
+                        .exchanges(vec![L2Prive])
+                        .partition(u)
+                        .build();
+                    middleware.emettre_evenement(routage, &m).await?;
                 }
             },
             None => warn!("transaction_recevoir Nom usager local inconnu : {}", nom_usager)
@@ -401,7 +412,6 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     }
 
     // Si reception d'un message local, mettre a jour flags dans outgoing
-
 
     middleware.reponse_ok()
 }
