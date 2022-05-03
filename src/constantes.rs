@@ -44,7 +44,7 @@ pub const EVENEMENT_UPLOAD_ATTACHMENT: &str = "evenementAttachment";
 pub const EVENEMENT_MAJ_CONTACT: &str = "majContact";
 pub const EVENEMENT_NOUVEAU_MESSAGE: &str = "nouveauMessage";
 pub const EVENEMENT_MESSAGE_LU: &str = "messageLu";
-pub const EVENEMENT_MESSAGE_SUPPRIME: &str = "messageSupprime";
+pub const EVENEMENT_MESSAGES_SUPPRIMES: &str = "messagesSupprimes";
 
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";

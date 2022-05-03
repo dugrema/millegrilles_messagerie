@@ -683,7 +683,7 @@ async fn supprimer_message<M, T>(gestionnaire: &GestionnaireMessagerie, middlewa
         Err(e) => Err(format!("transactions.supprimer_message Erreur update pour transfert complete {} : {:?}", uuid_transaction, e))?
     }
 
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MESSAGE_SUPPRIME)
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MESSAGES_SUPPRIMES)
         .exchanges(vec![L2Prive])
         .partition(&user_id)
         .build();
