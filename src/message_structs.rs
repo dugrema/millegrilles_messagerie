@@ -151,6 +151,7 @@ pub struct RequeteGetMessages {
     pub limit: Option<i64>,
     pub skip: Option<u64>,
     pub uuid_messages: Option<Vec<String>>,
+    pub inclure_supprime: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -223,6 +224,11 @@ pub struct TransactionTransfertComplete {
     pub uuid_message: String,
     pub message_complete: Option<bool>,
     pub attachments_completes: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionSupprimerMessage {
+    pub uuid_transactions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

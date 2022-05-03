@@ -35,6 +35,7 @@ pub const TRANSACTION_INITIALISER_PROFIL: &str = "initialiserProfil";
 pub const TRANSACTION_MAJ_CONTACT: &str = "majContact";
 pub const TRANSACTION_LU: &str = "lu";
 pub const TRANSACTION_TRANSFERT_COMPLETE: &str = "transfertComplete";
+pub const TRANSACTION_SUPPRIMER_MESSAGES: &str = "supprimerMessages";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 
@@ -42,6 +43,8 @@ pub const EVENEMENT_POMPE_POSTE: &str = "pompePoste";
 pub const EVENEMENT_UPLOAD_ATTACHMENT: &str = "evenementAttachment";
 pub const EVENEMENT_MAJ_CONTACT: &str = "majContact";
 pub const EVENEMENT_NOUVEAU_MESSAGE: &str = "nouveauMessage";
+pub const EVENEMENT_MESSAGE_LU: &str = "messageLu";
+pub const EVENEMENT_MESSAGE_SUPPRIME: &str = "messageSupprime";
 
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";

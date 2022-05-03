@@ -187,6 +187,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_INITIALISER_PROFIL,
         TRANSACTION_MAJ_CONTACT,
         TRANSACTION_LU,
+        TRANSACTION_SUPPRIMER_MESSAGES,
 
         // COMMANDE_INDEXER,
     ];
@@ -229,23 +230,12 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_MAJ_CONTACT,
         TRANSACTION_LU,
         TRANSACTION_TRANSFERT_COMPLETE,
+        TRANSACTION_SUPPRIMER_MESSAGES,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {
             routing_key: format!("transaction.{}.{}", DOMAINE_NOM, ts).into(),
             exchange: Securite::L4Secure
-        });
-    }
-
-    // RK protege
-    let transactions_protegees: Vec<&str> = vec![
-        // TRANSACTION_ASSOCIER_CONVERSIONS,
-        // TRANSACTION_ASSOCIER_VIDEO,
-    ];
-    for t in transactions_protegees {
-        rk_transactions.push(ConfigRoutingExchange {
-            routing_key: format!("transaction.{}.{}", DOMAINE_NOM, t).into(),
-            exchange: Securite::L3Protege
         });
     }
 

@@ -43,7 +43,8 @@ where
         TRANSACTION_INITIALISER_PROFIL |
         TRANSACTION_MAJ_CONTACT |
         TRANSACTION_LU |
-        TRANSACTION_TRANSFERT_COMPLETE => {
+        TRANSACTION_TRANSFERT_COMPLETE |
+        TRANSACTION_SUPPRIMER_MESSAGES => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
@@ -69,6 +70,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_MAJ_CONTACT => transaction_maj_contact(gestionnaire, middleware, transaction).await,
         TRANSACTION_LU => transaction_lu(gestionnaire, middleware, transaction).await,
         TRANSACTION_TRANSFERT_COMPLETE => transfert_complete(gestionnaire, middleware, transaction).await,
+        TRANSACTION_SUPPRIMER_MESSAGES => supprimer_message(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
@@ -572,7 +574,7 @@ async fn transaction_lu<M, T>(gestionnaire: &GestionnaireMessagerie, middleware:
     };
 
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    let filtre = doc! {CHAMP_USER_ID: user_id, TRANSACTION_CHAMP_UUID_TRANSACTION: uuid_message};
+    let filtre = doc! {CHAMP_USER_ID: user_id, TRANSACTION_CHAMP_UUID_TRANSACTION: &uuid_message};
     let ops = doc! {
         "$set": {"lu": flag_lu, "lu_date": date_lu},
         "$currentDate": {CHAMP_MODIFICATION: true},
@@ -585,11 +587,22 @@ async fn transaction_lu<M, T>(gestionnaire: &GestionnaireMessagerie, middleware:
                     Ok(r) => return Ok(Some(r)),
                     Err(e) => Err(format!("transactions.transaction_maj_contact Erreur preparation reponse. Erreur de mise a jour flag lu."))?
                 };
-
             }
         },
         Err(e) => Err(format!("transactions.transaction_maj_contact Erreur conversion transaction en bson : {:?}", e))?
     };
+
+    // Emettre evenement lu
+    {
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MESSAGE_LU)
+            .exchanges(vec![L2Prive])
+            .partition(user_id)
+            .build();
+        let evenement_lu = json!({
+            "lus": {&uuid_message: flag_lu},
+        });
+        middleware.emettre_evenement(routage, &evenement_lu).await?;
+    }
 
     middleware.reponse_ok()
 }
@@ -632,4 +645,52 @@ async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     }
 
     Ok(None)
+}
+
+async fn supprimer_message<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    debug!("supprimer_message Consommer transaction : {:?}", &transaction);
+
+    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
+    let user_id = match transaction.get_enveloppe_certificat() {
+        Some(e) => match e.get_user_id()?.to_owned() {
+            Some(u) => u,
+            None => Err(format!("transactions.supprimer_message Certificat sans user_id, transaction {} invalide", uuid_transaction))?
+        },
+        None => Err(format!("transactions.supprimer_message Message sans certificat, transaction {} invalide", uuid_transaction))?
+    };
+
+    let transaction_mappee = match transaction.convertir::<TransactionSupprimerMessage>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.supprimer_message Erreur conversion transaction : {:?}", e))?
+    };
+
+    let uuid_transactions = transaction_mappee.uuid_transactions;
+    let filtre = doc! {CHAMP_USER_ID: &user_id, TRANSACTION_CHAMP_UUID_TRANSACTION: {"$in": &uuid_transactions}};
+    let ops = doc! {
+        "$set": { CHAMP_SUPPRIME: true },
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    debug!("supprimer_message filtre : {:?}, ops: {:?}", filtre, ops);
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    match collection.update_many(filtre, ops, None).await {
+        Ok(r) => debug!("supprimer_message Resultat : {:?}", r),
+        Err(e) => Err(format!("transactions.supprimer_message Erreur update pour transfert complete {} : {:?}", uuid_transaction, e))?
+    }
+
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MESSAGE_SUPPRIME)
+        .exchanges(vec![L2Prive])
+        .partition(&user_id)
+        .build();
+    let evenement_supprime = json!({
+        "uuid_transactions": &uuid_transactions,
+    });
+    middleware.emettre_evenement(routage, &evenement_supprime).await?;
+
+    middleware.reponse_ok()
 }

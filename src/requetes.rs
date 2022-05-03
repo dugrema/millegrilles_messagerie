@@ -92,13 +92,18 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
         None => 0
     };
 
+    let inclure_supprime = match requete.inclure_supprime { Some(b) => b, None => false };
+
     let opts = FindOptions::builder()
         // .hint(Hint::Name(String::from("fichiers_activite_recente")))
         .sort(doc!{CHAMP_DATE_RECEPTION: -1})
         .limit(limit)
         .skip(skip)
         .build();
-    let mut filtre = doc!{CHAMP_SUPPRIME: false, CHAMP_USER_ID: user_id};
+    let mut filtre = doc!{CHAMP_USER_ID: user_id};
+    if ! inclure_supprime {
+        filtre.insert(CHAMP_SUPPRIME, false);
+    }
 
     if let Some(um) = requete.uuid_messages {
         filtre.insert("uuid_transaction", doc!{"$in": um});
