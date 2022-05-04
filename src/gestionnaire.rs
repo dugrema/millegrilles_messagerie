@@ -176,6 +176,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         REQUETE_GET_PROFIL,
         REQUETE_GET_CONTACTS,
         REQUETE_ATTACHMENT_REQUIS,
+        REQUETE_GET_REFERENCE_MESSAGES,
     ];
     for req in requetes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});

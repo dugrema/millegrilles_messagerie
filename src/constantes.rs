@@ -25,6 +25,7 @@ pub const REQUETE_GET_PERMISSION_MESSAGES: &str = "getPermissionMessages";
 pub const REQUETE_GET_PROFIL: &str = "getProfil";
 pub const REQUETE_GET_CONTACTS: &str = "getContacts";
 pub const REQUETE_ATTACHMENT_REQUIS: &str = "attachmentRequis";
+pub const REQUETE_GET_REFERENCE_MESSAGES: &str = "getReferenceMessages";
 
 pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
 pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";

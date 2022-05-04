@@ -155,6 +155,13 @@ pub struct RequeteGetMessages {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequeteGetReferenceMessages {
+    pub limit: Option<i64>,
+    pub date_minimum: Option<DateEpochSeconds>,
+    pub inclure_supprime: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncoming {
     pub uuid_transaction: String,
     pub lu: bool,
@@ -164,6 +171,14 @@ pub struct MessageIncoming {
     pub hachage_bytes: String,
     pub certificat_message: Vec<String>,
     pub attachments: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageIncomingReference {
+    pub uuid_transaction: String,
+    pub lu: bool,
+    pub supprime: bool,
+    pub date_reception: DateEpochSeconds,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

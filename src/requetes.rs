@@ -53,6 +53,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
         DOMAINE_NOM => {
             match message.action.as_str() {
                 REQUETE_GET_MESSAGES => requete_get_messages(middleware, message, gestionnaire).await,
+                REQUETE_GET_REFERENCE_MESSAGES => requete_get_reference_messages(middleware, message, gestionnaire).await,
                 REQUETE_GET_PERMISSION_MESSAGES => requete_get_permission_messages(middleware, message).await,
                 REQUETE_GET_PROFIL => requete_get_profil(middleware, message).await,
                 REQUETE_GET_CONTACTS => requete_get_contacts(middleware, message).await,
@@ -117,12 +118,65 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }
 
+async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_get_reference_messages Message : {:?}", & m.message);
+    let requete: RequeteGetReferenceMessages = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_reference_messages cle parsed : {:?}", requete);
+
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+    };
+
+    let limit = match requete.limit {
+        Some(l) => l,
+        None => 1000
+    };
+
+    let inclure_supprime = match requete.inclure_supprime { Some(b) => b, None => false };
+
+    let opts = FindOptions::builder()
+        .sort(doc!{CHAMP_DATE_RECEPTION: 1})
+        .limit(limit)
+        .build();
+    let mut filtre = doc!{CHAMP_USER_ID: user_id};
+    if ! inclure_supprime {
+        filtre.insert(CHAMP_SUPPRIME, false);
+    }
+    if let Some(d) = requete.date_minimum.as_ref() {
+        filtre.insert(CHAMP_DATE_RECEPTION, doc!{"$gte": d});
+    }
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let mut curseur = collection.find(filtre, opts).await?;
+    let fichiers_mappes = mapper_reference_messages_curseur(curseur).await?;
+
+    let reponse = json!({ "messages": fichiers_mappes });
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+}
+
 async fn mapper_messages_curseur(mut curseur: Cursor<Document>) -> Result<Value, Box<dyn Error>> {
     let mut messages_mappes = Vec::new();
 
     while let Some(fresult) = curseur.next().await {
         let fcurseur = fresult?;
         let message_db = mapper_message_db(fcurseur)?;
+        messages_mappes.push(message_db);
+    }
+
+    // Convertir fichiers en Value (serde pour reponse json)
+    Ok(serde_json::to_value(messages_mappes)?)
+}
+
+async fn mapper_reference_messages_curseur(mut curseur: Cursor<Document>) -> Result<Value, Box<dyn Error>> {
+    let mut messages_mappes = Vec::new();
+
+    while let Some(fresult) = curseur.next().await {
+        let fcurseur = fresult?;
+        let mut message_db: MessageIncomingReference = convertir_bson_deserializable(fcurseur)?;
         messages_mappes.push(message_db);
     }
 
