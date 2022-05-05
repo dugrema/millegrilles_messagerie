@@ -57,6 +57,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_GET_PERMISSION_MESSAGES => requete_get_permission_messages(middleware, message).await,
                 REQUETE_GET_PROFIL => requete_get_profil(middleware, message).await,
                 REQUETE_GET_CONTACTS => requete_get_contacts(middleware, message).await,
+                REQUETE_GET_REFERENCE_CONTACTS => requete_get_reference_contacts(middleware, message).await,
                 REQUETE_ATTACHMENT_REQUIS => requete_attachment_requis(middleware, message).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
@@ -340,7 +341,12 @@ async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
             .build();
 
         let collection = middleware.get_collection(NOM_COLLECTION_CONTACTS)?;
-        let filtre = doc! {CHAMP_USER_ID: user_id};
+        let mut filtre = doc! {CHAMP_USER_ID: user_id};
+
+        if let Some(uuids_contacts) = requete.uuid_contacts.as_ref() {
+            filtre.insert(CHAMP_UUID_CONTACT, doc!{"$in": uuids_contacts});
+        }
+
         let mut curseur = collection.find(filtre, opts).await?;
 
         while let Some(r) = curseur.next().await {
@@ -359,6 +365,64 @@ async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
         middleware.formatter_reponse(message_reponse, None)?
     };
     debug!("get_profil Reponse {:?}", reponse);
+
+    Ok(Some(reponse))
+}
+
+async fn requete_get_reference_contacts<M>(middleware: &M, m: MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"err": true, "code": 403, "message": "user_id n'est pas dans le certificat"}), None)?))
+    };
+
+    debug!("requete_get_reference_contacts Message : {:?}", & m.message);
+    let requete: ParametresGetContacts = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_reference_contacts cle parsed : {:?}", requete);
+
+    let contacts = {
+        let mut contacts = Vec::new();
+
+        let limit = match requete.limit {
+            Some(l) => l,
+            None => 1000
+        };
+        let skip = match requete.skip {
+            Some(s) => s,
+            None => 0
+        };
+        let opts = FindOptions::builder()
+            .sort(doc! {CHAMP_USER_ID: 1})
+            .limit(limit)
+            .skip(skip)
+            .build();
+
+        let collection = middleware.get_collection(NOM_COLLECTION_CONTACTS)?;
+        let filtre = doc! {CHAMP_USER_ID: user_id};
+        let mut curseur = collection.find(filtre, opts).await?;
+
+        while let Some(r) = curseur.next().await {
+            let contact_doc = r?;
+            let date_modification = contact_doc.get_datetime(CHAMP_MODIFICATION)?.clone();
+
+            let mut contact_mappe: ReferenceContact = convertir_bson_deserializable(contact_doc)?;
+            contact_mappe.date_modification = Some(DateEpochSeconds::from(date_modification.to_chrono()));
+
+            contacts.push(contact_mappe);
+        }
+
+        contacts
+    };
+
+    let reponse = {
+        let message_reponse = json!({
+            "contacts": contacts,
+        });
+        middleware.formatter_reponse(message_reponse, None)?
+    };
+    debug!("requete_get_reference_contacts Reponse {:?}", reponse);
 
     Ok(Some(reponse))
 }

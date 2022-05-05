@@ -222,6 +222,13 @@ pub struct Contact {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReferenceContact {
+    pub nom: String,
+    pub uuid_contact: Option<String>,
+    pub date_modification: Option<DateEpochSeconds>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AdresseUserId {
     pub idmg: String,
     #[serde(rename = "userId")]

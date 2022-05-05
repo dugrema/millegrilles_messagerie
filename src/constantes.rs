@@ -24,6 +24,7 @@ pub const REQUETE_GET_MESSAGES: &str = "getMessages";
 pub const REQUETE_GET_PERMISSION_MESSAGES: &str = "getPermissionMessages";
 pub const REQUETE_GET_PROFIL: &str = "getProfil";
 pub const REQUETE_GET_CONTACTS: &str = "getContacts";
+pub const REQUETE_GET_REFERENCE_CONTACTS: &str = "getReferenceContacts";
 pub const REQUETE_ATTACHMENT_REQUIS: &str = "attachmentRequis";
 pub const REQUETE_GET_REFERENCE_MESSAGES: &str = "getReferenceMessages";
 
@@ -69,6 +70,7 @@ pub const CHAMP_DATE_RECEPTION: &str = "date_reception";
 pub const CHAMP_FLAG_LU: &str = "lu";
 pub const CHAMP_UUID_MESSAGE: &str = "uuid_message";
 pub const CHAMP_LAST_PROCESSED: &str = "last_processed";
+pub const CHAMP_UUID_CONTACT: &str = "uuid_contact";
 
 pub const CODE_UPLOAD_DEBUT: u32 = 1;
 pub const CODE_UPLOAD_ENCOURS: u32 = 2;
