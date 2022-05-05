@@ -341,7 +341,7 @@ async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
             .build();
 
         let collection = middleware.get_collection(NOM_COLLECTION_CONTACTS)?;
-        let mut filtre = doc! {CHAMP_USER_ID: user_id};
+        let mut filtre = doc! {CHAMP_USER_ID: user_id, CHAMP_SUPPRIME: false};
 
         if let Some(uuids_contacts) = requete.uuid_contacts.as_ref() {
             filtre.insert(CHAMP_UUID_CONTACT, doc!{"$in": uuids_contacts});

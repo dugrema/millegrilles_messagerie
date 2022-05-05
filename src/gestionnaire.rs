@@ -190,6 +190,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_MAJ_CONTACT,
         TRANSACTION_LU,
         TRANSACTION_SUPPRIMER_MESSAGES,
+        TRANSACTION_SUPPRIMER_CONTACTS,
 
         // COMMANDE_INDEXER,
     ];

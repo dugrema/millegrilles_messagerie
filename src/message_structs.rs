@@ -226,6 +226,7 @@ pub struct ReferenceContact {
     pub nom: String,
     pub uuid_contact: Option<String>,
     pub date_modification: Option<DateEpochSeconds>,
+    pub supprime: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -251,6 +252,11 @@ pub struct TransactionTransfertComplete {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionSupprimerMessage {
     pub uuid_transactions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionSupprimerContacts {
+    pub uuid_contacts: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -38,6 +38,7 @@ pub const TRANSACTION_MAJ_CONTACT: &str = "majContact";
 pub const TRANSACTION_LU: &str = "lu";
 pub const TRANSACTION_TRANSFERT_COMPLETE: &str = "transfertComplete";
 pub const TRANSACTION_SUPPRIMER_MESSAGES: &str = "supprimerMessages";
+pub const TRANSACTION_SUPPRIMER_CONTACTS: &str = "supprimerContacts";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 
@@ -47,6 +48,7 @@ pub const EVENEMENT_MAJ_CONTACT: &str = "majContact";
 pub const EVENEMENT_NOUVEAU_MESSAGE: &str = "nouveauMessage";
 pub const EVENEMENT_MESSAGE_LU: &str = "messageLu";
 pub const EVENEMENT_MESSAGES_SUPPRIMES: &str = "messagesSupprimes";
+pub const EVENEMENT_CONTACTS_SUPPRIMES: &str = "contactsSupprimes";
 
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";
@@ -71,6 +73,7 @@ pub const CHAMP_FLAG_LU: &str = "lu";
 pub const CHAMP_UUID_MESSAGE: &str = "uuid_message";
 pub const CHAMP_LAST_PROCESSED: &str = "last_processed";
 pub const CHAMP_UUID_CONTACT: &str = "uuid_contact";
+pub const CHAMP_UUID_CONTACTS: &str = "uuid_contacts";
 
 pub const CODE_UPLOAD_DEBUT: u32 = 1;
 pub const CODE_UPLOAD_ENCOURS: u32 = 2;

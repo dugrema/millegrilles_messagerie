@@ -62,6 +62,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         TRANSACTION_MAJ_CONTACT => commande_maj_contact(middleware, m, gestionnaire).await,
         TRANSACTION_LU => commande_lu(middleware, m, gestionnaire).await,
         TRANSACTION_SUPPRIMER_MESSAGES => commande_supprimer_message(middleware, m, gestionnaire).await,
+        TRANSACTION_SUPPRIMER_CONTACTS => commande_supprimer_contacts(middleware, m, gestionnaire).await,
 
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, m.action))?,
@@ -382,7 +383,41 @@ async fn commande_supprimer_message<M>(middleware: &M, m: MessageValideAction, g
     } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
         // Ok
     } else {
-        Err(format!("commandes.commande_initialiser_profil: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+        Err(format!("commandes.commande_supprimer_message: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    }
+
+    // Traiter la transaction
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn commande_supprimer_contacts<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commandes.commande_supprimer_contacts Consommer commande : {:?}", & m.message);
+    let commande: TransactionSupprimerContacts = m.message.get_msg().map_contenu(None)?;
+    debug!("commandes.commande_supprimer_contacts Commande parsed : {:?}", commande);
+
+    {
+        let version_commande = m.message.get_entete().version;
+        if version_commande != 1 {
+            Err(format!("commandes.commande_supprimer_contacts: Version non supportee {:?}", version_commande))?
+        }
+    }
+
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
+    };
+
+    // Autorisation: Action usager avec compte prive ou delegation globale
+    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    if role_prive {
+        // Ok
+    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+        // Ok
+    } else {
+        Err(format!("commandes.commande_supprimer_contacts: Commande autorisation invalide pour message {:?}", m.correlation_id))?
     }
 
     // Traiter la transaction
