@@ -78,7 +78,8 @@ async fn evenement_upload_attachment<M>(middleware: &M, m: MessageValideAction)
             }
         },
         CODE_UPLOAD_ERREUR => {
-            todo!("Remettre le fuuid a la fin de la file, ajouter next_push_time")
+            warn!("Remettre le fuuid a la fin de la file, ajouter next_push_time");
+            return Ok(None);
         },
         _ => {
             Err(format!("evenements.evenement_upload_attachment Recu evenement inconnu (code: {}), on l'ignore", evenement.code))?

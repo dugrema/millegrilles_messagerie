@@ -576,7 +576,8 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                 let routage_requete = RoutageMessageAction::builder("CoreTopologie", "applicationsTiers")
                     .exchanges(vec![L2Prive])
                     .build();
-                let requete = json!({"idmgs": &set_idmgs, "application": "messagerie"});
+                let requete = json!({"idmgs": &set_idmgs, "application": "messagerie_web"});
+                debug!("pousser_message_vers_tiers Resolve idmgs avec CoreTopologie: {:?}", requete);
                 let fiches_applications: ReponseFichesApplications  = match middleware.transmettre_requete(routage_requete, &requete).await? {
                     TypeMessage::Valide(r) => {
                         debug!("pousser_message_vers_tiers Reponse applications : {:?}", r);
