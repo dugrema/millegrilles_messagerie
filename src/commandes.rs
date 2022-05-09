@@ -13,7 +13,7 @@ use millegrilles_common_rust::generateur_messages::GenerateurMessages;
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
 use millegrilles_common_rust::mongodb::Collection;
-use millegrilles_common_rust::mongodb::options::{FindOptions, Hint, UpdateOptions};
+use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::tokio_stream::StreamExt;
@@ -24,7 +24,7 @@ use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
 use crate::transactions::*;
 use crate::message_structs::*;
-use crate::pompe_messages::marquer_outgoing_resultat;
+use crate::pompe_messages::{marquer_outgoing_resultat, verifier_fin_transferts_attachments};
 
 pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -54,6 +54,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         // Commandes standard
         COMMANDE_CONFIRMER_TRANSMISSION => commande_confirmer_transmission(middleware, m, gestionnaire).await,
         COMMANDE_PROCHAIN_ATTACHMENT => commande_prochain_attachment(middleware, m, gestionnaire).await,
+        COMMANDE_UPLOAD_ATTACHMENT => commande_upload_attachment(middleware, m).await,
 
         // Transactions
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
@@ -280,6 +281,7 @@ async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideActi
     let processed = match &commande.code {
         200 => true,
         201 => true,
+        202 => true,
         _ => false
     };
 
@@ -427,4 +429,63 @@ async fn commande_supprimer_contacts<M>(middleware: &M, m: MessageValideAction, 
 
     // Traiter la transaction
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn commande_upload_attachment<M>(middleware: &M, m: MessageValideAction)
+                                       -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commande_upload_attachment Consommer : {:?}", & m.message);
+    let evenement: CommandeUploadAttachment = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_upload_attachment parsed : {:?}", evenement);
+
+    let idmg = evenement.idmg.as_str();
+    let uuid_message = evenement.uuid_message.as_str();
+    let fuuid = evenement.fuuid.as_str();
+    let ts_courant = Utc::now().timestamp();
+
+    let ops = match evenement.code {
+        CODE_UPLOAD_DEBUT | CODE_UPLOAD_ENCOURS => {
+            // Faire un touch
+            doc! {
+                "$set": { format!("idmgs_mapping.{}.attachments_en_cours.{}.last_update", idmg, fuuid): ts_courant },
+                // S'assurer que le fichier n'a pas ete remis dans la file
+                "$pull": { format!("idmgs_mapping.{}.attachments_restants", idmg): fuuid, },
+                "$currentDate": {CHAMP_LAST_PROCESSED: true},
+            }
+        },
+        CODE_UPLOAD_TERMINE => {
+            // Marquer fuuid comme complete
+            doc! {
+                "$addToSet": { format!("idmgs_mapping.{}.attachments_completes", idmg): fuuid},
+                "$unset": { format!("idmgs_mapping.{}.attachments_en_cours.{}", idmg, fuuid): true },
+                // S'assurer que le fichier n'a pas ete remis dans la file
+                "$pull": { format!("idmgs_mapping.{}.attachments_restants", idmg): fuuid, },
+                "$currentDate": {CHAMP_LAST_PROCESSED: true},
+            }
+        },
+        CODE_UPLOAD_ERREUR => {
+            warn!("commande_upload_attachment Remettre le fuuid a la fin de la file, ajouter next_push_time");
+            return Ok(None);
+        },
+        _ => {
+            Err(format!("evenements.commande_upload_attachment Recu evenement inconnu (code: {}), on l'ignore", evenement.code))?
+        }
+    };
+
+    let filtre = doc! {CHAMP_UUID_MESSAGE: uuid_message};
+    let options = FindOneAndUpdateOptions::builder()
+        .return_document(ReturnDocument::After)
+        .build();
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let doc_outgoing = collection.find_one_and_update(filtre, ops, Some(options)).await?;
+    let doc_outgoing: DocOutgointProcessing = match doc_outgoing {
+        Some(d) => Ok(convertir_bson_deserializable(d)?),
+        None => {
+            Err(format!("evenements.evenement_upload_attachment Evenement recu pour doc_outgoing inconnu"))
+        }
+    }?;
+    verifier_fin_transferts_attachments(middleware, &doc_outgoing).await?;
+
+    Ok(None)
 }

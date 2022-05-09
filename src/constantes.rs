@@ -43,7 +43,7 @@ pub const TRANSACTION_SUPPRIMER_CONTACTS: &str = "supprimerContacts";
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 
 pub const EVENEMENT_POMPE_POSTE: &str = "pompePoste";
-pub const EVENEMENT_UPLOAD_ATTACHMENT: &str = "evenementAttachment";
+pub const COMMANDE_UPLOAD_ATTACHMENT: &str = "uploadAttachment";
 pub const EVENEMENT_MAJ_CONTACT: &str = "majContact";
 pub const EVENEMENT_NOUVEAU_MESSAGE: &str = "nouveauMessage";
 pub const EVENEMENT_MESSAGE_LU: &str = "messageLu";

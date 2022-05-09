@@ -318,7 +318,7 @@ pub struct ReponseProchainAttachment {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct EvenementUploadAttachment {
+pub struct CommandeUploadAttachment {
     pub uuid_message: String,
     pub idmg: String,
     pub fuuid: String,
