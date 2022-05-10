@@ -205,9 +205,18 @@ pub fn preparer_queues() -> Vec<QueueType> {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L1Public});
     }
 
-    let evenements_secure: Vec<&str> = vec![ EVENEMENT_POMPE_POSTE ];
+    let evenements_secure: Vec<&str> = vec![
+        EVENEMENT_POMPE_POSTE,
+    ];
     for cmd in evenements_secure {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L4Secure});
+    }
+
+    let commandes_secure: Vec<&str> = vec![
+        COMMANDE_FUUID_VERIFIER_EXISTANCE,
+    ];
+    for cmd in commandes_secure {
+        rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L4Secure});
     }
 
     // rk_volatils.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_POSTMASTER, COMMANDE_UPLOAD_ATTACHMENT), exchange: Securite::L1Public});
@@ -358,6 +367,21 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         NOM_COLLECTION_INCOMING,
         champs_attachments_fuuids,
         Some(options_attachments_fuuids)
+    ).await?;
+
+    // Index uuid_message/user_id pour messages incoming
+    let options_uuidmessage_userid = IndexOptions {
+        nom_index: Some(String::from("uuidtransaction_userid")),
+        unique: true
+    };
+    let champs_uuidmessage_userid = vec!(
+        ChampIndex {nom_champ: String::from("uuid_message"), direction: 1},
+        ChampIndex {nom_champ: String::from("user_id"), direction: 1},
+    );
+    middleware.create_index(
+        NOM_COLLECTION_INCOMING,
+        champs_uuidmessage_userid,
+        Some(options_uuidmessage_userid)
     ).await?;
 
     Ok(())

@@ -10,7 +10,7 @@ use millegrilles_common_rust::bson::{Array, Bson};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::constantes::Securite::L2Prive;
+use millegrilles_common_rust::constantes::Securite::{L2Prive, L4Secure};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_transaction_recue};
@@ -378,6 +378,23 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         None => Err(format!("transactions.transaction_recevoir Erreur insertion message {}, certificat {} introuvable", uuid_transaction, fingerprint_usager))?
     };
 
+    let attachments_recus = match attachments.as_ref() {
+        Some(a) => a.is_empty(),
+        None => true
+    };
+
+    let attachments_bson = match attachments.as_ref() {
+        Some(a) => {
+            let mut attachments_bson = doc!{};
+            for fuuid in a {
+                attachments_bson.insert(fuuid.to_owned(), false);
+            }
+            Some(attachments_bson)
+        },
+        None => None
+    };
+
+
     for (nom_usager, user_id) in &reponse_mappee.usagers {
         let now: Bson = DateEpochSeconds::now().into();
         match user_id {
@@ -387,6 +404,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                 let doc_user_reception = doc! {
                     "user_id": u,
                     "uuid_transaction": &uuid_transaction,
+                    "uuid_message": &uuid_message,
                     "lu": false,
                     CHAMP_SUPPRIME: false,
                     "date_reception": now,
@@ -394,7 +412,8 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     "certificat_message": &certificat_usager_pem,
                     "message_chiffre": &message_chiffre,
                     "hachage_bytes": &hachage_bytes,
-                    "attachments": &attachments,
+                    "attachments": &attachments_bson,
+                    "attachments_recus": &attachments_recus,
                 };
 
                 if let Err(e) = collection.insert_one(&doc_user_reception, None).await {
@@ -415,7 +434,16 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         }
     }
 
-    // Si reception d'un message local, mettre a jour flags dans outgoing
+    if ! attachments_recus {
+        if let Some(a) = attachments.as_ref() {
+            debug!("transaction_recevoir Emettre une verification aupres de fichiers pour existance de {:?}", attachments);
+            let commande = CommandeVerifierExistanceFuuidsMessage { uuid_message: uuid_message.clone(), fuuids: a.to_owned() };
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM, "fuuidVerifierExistance")
+                .exchanges(vec![L4Secure])
+                .build();
+            middleware.transmettre_commande(routage, &commande, false).await?;
+        }
+    }
 
     middleware.reponse_ok()
 }

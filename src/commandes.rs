@@ -8,13 +8,14 @@ use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
+use millegrilles_common_rust::constantes::Securite::L2Prive;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
-use millegrilles_common_rust::generateur_messages::GenerateurMessages;
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
 use millegrilles_common_rust::mongodb::Collection;
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
+use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::transactions::Transaction;
@@ -55,6 +56,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         COMMANDE_CONFIRMER_TRANSMISSION => commande_confirmer_transmission(middleware, m, gestionnaire).await,
         COMMANDE_PROCHAIN_ATTACHMENT => commande_prochain_attachment(middleware, m, gestionnaire).await,
         COMMANDE_UPLOAD_ATTACHMENT => commande_upload_attachment(middleware, m).await,
+        COMMANDE_FUUID_VERIFIER_EXISTANCE => commande_fuuid_verifier_existance(middleware, m).await,
 
         // Transactions
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
@@ -486,6 +488,45 @@ async fn commande_upload_attachment<M>(middleware: &M, m: MessageValideAction)
         }
     }?;
     verifier_fin_transferts_attachments(middleware, &doc_outgoing).await?;
+
+    Ok(None)
+}
+
+async fn commande_fuuid_verifier_existance<M>(middleware: &M, m: MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commande_fuuid_verifier_existance Consommer : {:?}", & m.message);
+    let commande: CommandeVerifierExistanceFuuidsMessage = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_fuuid_verifier_existance parsed : {:?}", commande);
+
+    // Faire requete vers fichiers
+    let routage = RoutageMessageAction::builder("fichiers", "fuuidVerifierExistance")
+        .exchanges(vec![L2Prive])
+        .build();
+    let requete = json!({"fuuids": &commande.fuuids});
+    let reponse = middleware.transmettre_requete(routage, &requete).await?;
+
+    debug!("commande_fuuid_verifier_existance Reponse : {:?}", reponse);
+    let mut set_ops = doc!{};
+    if let TypeMessage::Valide(r) = reponse {
+        let reponse_mappee: ReponseVerifierExistanceFuuidsMessage = r.message.parsed.map_contenu(None)?;
+        for (key, value) in reponse_mappee.fuuids.into_iter() {
+            if(value) {
+                set_ops.insert(format!("attachments.{}", key), true);
+            }
+        }
+    }
+
+    if ! set_ops.is_empty() {
+        let ops = doc! {
+            "$set": set_ops,
+            "$currentDate": {CHAMP_MODIFICATION: true},
+        };
+        let filtre = doc! { "uuid_message": &commande.uuid_message };
+        let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+        collection.update_many(filtre, ops, None).await?;
+    }
 
     Ok(None)
 }

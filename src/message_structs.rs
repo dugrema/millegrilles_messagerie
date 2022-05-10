@@ -343,3 +343,14 @@ pub struct SortKey {
     pub colonne: String,
     pub ordre: Option<i32>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeVerifierExistanceFuuidsMessage {
+    pub uuid_message: String,
+    pub fuuids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseVerifierExistanceFuuidsMessage {
+    pub fuuids: HashMap<String, bool>,
+}
