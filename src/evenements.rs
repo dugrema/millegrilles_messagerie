@@ -117,7 +117,7 @@ pub async fn evenement_fichier_consigne<M>(gestionnaire: &GestionnaireMessagerie
     debug!("evenement_fichier_consigne parsed {:?}", message);
 
     let filtre = doc!{
-        "attachments_recus": false,
+        CHAMP_ATTACHMENTS_TRAITES: false,
         format!("attachments.{}", message.hachage_bytes): false,
     };
     let ops = doc!{

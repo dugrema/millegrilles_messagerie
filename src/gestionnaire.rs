@@ -39,6 +39,7 @@ use crate::evenements::consommer_evenement;
 use crate::pompe_messages::{MessagePompe, PompeMessages, traiter_cedule as traiter_cedule_pompe};
 use crate::requetes::consommer_requete;
 use crate::transactions::*;
+use crate::attachments::*;
 
 #[derive(Debug)]
 pub struct GestionnaireMessagerie {
@@ -415,8 +416,12 @@ pub async fn traiter_cedule<M>(gestionnaire: &GestionnaireMessagerie, middleware
     }
 
     // Executer a toutes les 5 minutes
-    // if minutes % 5 == 0 {
-    // }
+    //if minutes % 5 == 0 {
+        // Entretien des attachments de messages
+        if let Err(e) = entretien_attachments(middleware).await {
+            error!("gestionnaire.traiter_cedule Erreur entretien_attachments: {:?}", e);
+        }
+    //}
 
     Ok(())
 }

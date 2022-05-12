@@ -446,7 +446,7 @@ async fn requete_attachment_requis<M>(middleware: &M, m: MessageValideAction)
     let mut reponse_fuuid: HashMap<String, bool> = HashMap::new();
     for fuuid in &requete.fuuids {
         let filtre = doc! {
-            "attachments_recus": false,
+            CHAMP_ATTACHMENTS_TRAITES: false,
             format!("attachments.{}", fuuid): false,
         };
         let resultat = collection.find_one(filtre.clone(), Some(options.clone())).await?;

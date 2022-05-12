@@ -359,3 +359,11 @@ pub struct ReponseVerifierExistanceFuuidsMessage {
 pub struct EvenementFichiersConsigne {
     pub hachage_bytes: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageIncomingProjectionAttachments {
+    pub user_id: String,
+    pub uuid_transaction: String,
+    pub attachments: Option<HashMap<String, bool>>,
+    pub attachments_recus: Option<bool>,
+}

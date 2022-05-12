@@ -416,8 +416,8 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     "certificat_message": &certificat_usager_pem,
                     "message_chiffre": &message_chiffre,
                     "hachage_bytes": &hachage_bytes,
-                    "attachments": &attachments_bson,
-                    "attachments_recus": &attachments_recus,
+                    CHAMP_ATTACHMENTS: &attachments_bson,
+                    CHAMP_ATTACHMENTS_TRAITES: &attachments_recus,
                 };
 
                 if let Err(e) = collection.insert_one(&doc_user_reception, None).await {

@@ -7,6 +7,7 @@ mod transactions;
 mod pompe_messages;
 mod evenements;
 mod message_structs;
+mod attachments;
 
 use crate::domaines_messagerie::run;
 
