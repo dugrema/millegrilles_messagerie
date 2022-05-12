@@ -12,6 +12,7 @@ use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDa
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
+use millegrilles_common_rust::constantes::*;
 
 use crate::constantes::*;
 use crate::message_structs::*;
@@ -28,6 +29,7 @@ pub async fn consommer_evenement<M>(gestionnaire: &GestionnaireMessagerie, middl
     let niveau_securite_requis = match m.action.as_str() {
         // EVENEMENT_UPLOAD_ATTACHMENT => Ok(Securite::L1Public),
         EVENEMENT_POMPE_POSTE => Ok(Securite::L4Secure),
+        EVENEMENT_FICHIERS_CONSIGNE => Ok(Securite::L2Prive),
         _ => Err(format!("gestionnaire.consommer_evenement: Action inconnue : {}", m.action.as_str())),
     }?;
 
@@ -35,6 +37,7 @@ pub async fn consommer_evenement<M>(gestionnaire: &GestionnaireMessagerie, middl
         match m.action.as_str() {
             // EVENEMENT_UPLOAD_ATTACHMENT => evenement_upload_attachment(middleware, m).await,
             EVENEMENT_POMPE_POSTE => evenement_pompe_poste(gestionnaire, middleware, &m).await,
+            EVENEMENT_FICHIERS_CONSIGNE => evenement_fichier_consigne(gestionnaire, middleware, &m).await,
             _ => Err(format!("gestionnaire.consommer_transaction: Mauvais type d'action pour un evenement 1.public : {}", m.action))?,
         }
     } else {
@@ -102,3 +105,30 @@ pub async fn consommer_evenement<M>(gestionnaire: &GestionnaireMessagerie, middl
 //
 //     Ok(None)
 // }
+
+pub async fn evenement_fichier_consigne<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: &MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where
+        M: ValidateurX509 + GenerateurMessages + MongoDao,
+{
+    debug!("evenement_fichier_consigne Evenement recu {:?}", m);
+    let tx_pompe = gestionnaire.get_tx_pompe();
+    let message: EvenementFichiersConsigne = m.message.parsed.map_contenu(None)?;
+    debug!("evenement_fichier_consigne parsed {:?}", message);
+
+    let filtre = doc!{
+        "attachments_recus": false,
+        format!("attachments.{}", message.hachage_bytes): false,
+    };
+    let ops = doc!{
+        "$set": {
+            format!("attachments.{}", message.hachage_bytes): true,
+        },
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let resultat = collection.update_many(filtre, ops, None).await?;
+    debug!("evenement_fichier_consigne Resultat maj {:?}", resultat);
+
+    Ok(None)
+}

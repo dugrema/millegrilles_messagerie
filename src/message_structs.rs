@@ -170,7 +170,7 @@ pub struct MessageIncoming {
     pub message_chiffre: String,
     pub hachage_bytes: String,
     pub certificat_message: Vec<String>,
-    pub attachments: Option<Vec<String>>,
+    pub attachments: Option<HashMap<String, bool>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -190,7 +190,7 @@ pub struct ParametresGetPermissionMessages {
 pub struct MessageIncomingProjectionPermission {
     pub uuid_transaction: String,
     pub hachage_bytes: String,
-    pub attachments: Option<Vec<String>>,
+    pub attachments: Option<HashMap<String, bool>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -353,4 +353,9 @@ pub struct CommandeVerifierExistanceFuuidsMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReponseVerifierExistanceFuuidsMessage {
     pub fuuids: HashMap<String, bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EvenementFichiersConsigne {
+    pub hachage_bytes: String,
 }

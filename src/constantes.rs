@@ -50,6 +50,7 @@ pub const EVENEMENT_NOUVEAU_MESSAGE: &str = "nouveauMessage";
 pub const EVENEMENT_MESSAGE_LU: &str = "messageLu";
 pub const EVENEMENT_MESSAGES_SUPPRIMES: &str = "messagesSupprimes";
 pub const EVENEMENT_CONTACTS_SUPPRIMES: &str = "contactsSupprimes";
+pub const EVENEMENT_FICHIERS_CONSIGNE: &str = "consigne";
 
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";

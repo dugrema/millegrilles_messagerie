@@ -14,7 +14,7 @@ use millegrilles_common_rust::constantes::Securite::{L2Prive, L4Secure};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_transaction_recue};
-use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
+use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao, verifier_erreur_duplication_mongo};
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, ReturnDocument, UpdateOptions};
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::redis::ToRedisArgs;
@@ -290,7 +290,9 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     let idmg_local = middleware.get_enveloppe_privee().idmg()?;
     let idmg_message = message_recevoir_serialise.get_entete().idmg.as_str();
     let uuid_message = message_recevoir_serialise.get_entete().uuid_transaction.clone();
-    match idmg_local.as_str() == idmg_message {
+
+    let message_local = idmg_local.as_str() == idmg_message;
+    match message_local {
         true => {
             // Marquer le message comme traiter dans "outgoing local"
             let destinataires = message_recevoir.destinataires.clone();
@@ -379,7 +381,9 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     };
 
     let attachments_recus = match attachments.as_ref() {
-        Some(a) => a.is_empty(),
+        // Si on a des attachments et le message est local : true.
+        // Sinon aucuns attachments => true, au moins 1 => false
+        Some(a) => message_local || a.is_empty(),
         None => true
     };
 
@@ -387,13 +391,13 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         Some(a) => {
             let mut attachments_bson = doc!{};
             for fuuid in a {
-                attachments_bson.insert(fuuid.to_owned(), false);
+                // Si message local, on marque recu. Sinon on met false.
+                attachments_bson.insert(fuuid.to_owned(), message_local);
             }
             Some(attachments_bson)
         },
         None => None
     };
-
 
     for (nom_usager, user_id) in &reponse_mappee.usagers {
         let now: Bson = DateEpochSeconds::now().into();
@@ -417,7 +421,13 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                 };
 
                 if let Err(e) = collection.insert_one(&doc_user_reception, None).await {
-                    Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
+                    let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+                    if erreur_duplication {
+                        warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", doc_user_reception);
+                        return middleware.reponse_ok();
+                    } else {
+                        Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
+                    }
                 }
 
                 // Evenement de nouveau message pour front-end

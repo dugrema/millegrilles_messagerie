@@ -78,7 +78,7 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
 {
     debug!("requete_get_messages Message : {:?}", & m.message);
     let requete: RequeteGetMessages = m.message.get_msg().map_contenu(None)?;
-    debug!("requete_get_messages cle parsed : {:?}", requete);
+    debug!("requete_get_messages parsed : {:?}", requete);
 
     let user_id = match m.get_user_id() {
         Some(u) => u,
@@ -208,7 +208,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
 
     debug!("requete_get_permission Message : {:?}", & m.message);
     let requete: ParametresGetPermissionMessages = m.message.get_msg().map_contenu(None)?;
-    debug!("requete_get_permission cle parsed : {:?}", requete);
+    debug!("requete_get_permission parsed : {:?}", requete);
 
     // Utiliser certificat du message client (requete) pour demande de rechiffrage
     let pem_rechiffrage: Vec<String> = match &m.message.certificat {
@@ -235,10 +235,15 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
         hachage_bytes.insert(doc_message_incoming.hachage_bytes);
 
         if let Some(attachments) = &doc_message_incoming.attachments {
-            for h in attachments {
+            for (h, _) in attachments {
                 hachage_bytes.insert(h.to_owned());
             }
         }
+    }
+
+    if hachage_bytes.len() == 0 {
+        debug!("Aucun message identifie a partir de la liste {:?}", hachage_bytes);
+        return Ok(Some(middleware.formatter_reponse(&json!({"ok": true, "message": "Aucun message correspondant trouve"}), None)?));
     }
 
     let permission = json!({
@@ -264,7 +269,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
 
     middleware.transmettre_requete(routage, &permission).await?;
 
-    Ok(None)  // Some(middleware.formatter_reponse(&permission, None)?))
+    Ok(None)
 }
 
 async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
@@ -440,7 +445,10 @@ async fn requete_attachment_requis<M>(middleware: &M, m: MessageValideAction)
 
     let mut reponse_fuuid: HashMap<String, bool> = HashMap::new();
     for fuuid in &requete.fuuids {
-        let filtre = doc! {"attachments": fuuid};
+        let filtre = doc! {
+            "attachments_recus": false,
+            format!("attachments.{}", fuuid): false,
+        };
         let resultat = collection.find_one(filtre.clone(), Some(options.clone())).await?;
         reponse_fuuid.insert(fuuid.into(), resultat.is_some());
     }
