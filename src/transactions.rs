@@ -268,6 +268,17 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
 {
     debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
     let uuid_transaction = transaction.get_uuid_transaction().to_owned();
+    // let certificat_millegrille_pem = match transaction.get_enveloppe_certificat() {
+    //     Some(c) => c.get_pem_ca()?,
+    //     None => None
+    // };
+    // debug!("transaction_recevoir transaction contenu {:?}", transaction.get_contenu());
+    // let certificat_millegrille_pem = match transaction.
+    //     get_contenu().get_str("_millegrille") {
+    //     Ok(c) => Some(c.to_owned()),
+    //     Err(e) => None
+    // };
+    // debug!("transaction_recevoir Certificat millegrille {:?}", certificat_millegrille_pem);
 
     // let transaction_recevoir: TransactionRecevoir = match transaction.clone().convertir::<TransactionRecevoir>() {
     //     Ok(t) => t,
@@ -290,6 +301,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     let idmg_local = middleware.get_enveloppe_privee().idmg()?;
     let idmg_message = message_recevoir_serialise.get_entete().idmg.as_str();
     let uuid_message = message_recevoir_serialise.get_entete().uuid_transaction.clone();
+    let certificat_millegrille_pem = message_recevoir_serialise.parsed.millegrille.clone();
 
     let message_local = idmg_local.as_str() == idmg_message;
     match message_local {
@@ -405,7 +417,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
             Some(u) => {
                 // Sauvegarder message pour l'usager
                 debug!("transaction_recevoir Sauvegarder message pour usager : {}", u);
-                let doc_user_reception = doc! {
+                let mut doc_user_reception = doc! {
                     "user_id": u,
                     "uuid_transaction": &uuid_transaction,
                     "uuid_message": &uuid_message,
@@ -420,6 +432,11 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     CHAMP_ATTACHMENTS_TRAITES: &attachments_recus,
                 };
 
+                if let Some(cm) = certificat_millegrille_pem.as_ref() {
+                    doc_user_reception.insert("certificat_millegrille", cm);
+                }
+
+                debug!("transaction_recevoir Inserer message {:?}", doc_user_reception);
                 if let Err(e) = collection.insert_one(&doc_user_reception, None).await {
                     let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
                     if erreur_duplication {
