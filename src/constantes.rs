@@ -78,6 +78,7 @@ pub const CHAMP_UUID_CONTACT: &str = "uuid_contact";
 pub const CHAMP_UUID_CONTACTS: &str = "uuid_contacts";
 pub const CHAMP_ATTACHMENTS_TRAITES: &str = "attachments_traites";
 pub const CHAMP_ATTACHMENTS: &str = "attachments";
+pub const CHAMP_ATTACHMENTS_RETRY: &str = "attachments_retry";
 
 pub const CODE_UPLOAD_DEBUT: u32 = 1;
 pub const CODE_UPLOAD_ENCOURS: u32 = 2;

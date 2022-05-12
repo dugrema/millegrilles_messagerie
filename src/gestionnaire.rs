@@ -386,6 +386,20 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         Some(options_uuidmessage_userid)
     ).await?;
 
+    // Index uuid_message/user_id pour messages incoming
+    let options_incoming_attachmentstraites = IndexOptions {
+        nom_index: Some(String::from("attachments_traites")),
+        unique: false
+    };
+    let champs_incoming_attachmentstraites = vec!(
+        ChampIndex {nom_champ: String::from(CHAMP_ATTACHMENTS_TRAITES), direction: 1},
+    );
+    middleware.create_index(
+        NOM_COLLECTION_INCOMING,
+        champs_incoming_attachmentstraites,
+        Some(options_incoming_attachmentstraites)
+    ).await?;
+
     Ok(())
 }
 
@@ -416,12 +430,12 @@ pub async fn traiter_cedule<M>(gestionnaire: &GestionnaireMessagerie, middleware
     }
 
     // Executer a toutes les 5 minutes
-    //if minutes % 5 == 0 {
+    if minutes % 5 == 3 {
         // Entretien des attachments de messages
         if let Err(e) = entretien_attachments(middleware).await {
             error!("gestionnaire.traiter_cedule Erreur entretien_attachments: {:?}", e);
         }
-    //}
+    }
 
     Ok(())
 }

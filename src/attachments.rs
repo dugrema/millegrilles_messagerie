@@ -21,11 +21,33 @@ pub async fn entretien_attachments<M>(middleware: &M) -> Result<(), Box<dyn Erro
 {
     debug!("Debut entretien_attachments");
 
+    let fuuids_manquants = marquer_attachments_fichiers(middleware).await?;
+    verification_attachments(middleware, fuuids_manquants).await?;
+    marquer_attachments_expires(middleware).await?;
+
+    debug!("Fin entretien attachments");
+    Ok(())
+}
+
+pub async fn marquer_attachments_fichiers<M>(middleware: &M) -> Result<Vec<String>, Box<dyn Error>>
+    where M: MongoDao + GenerateurMessages
+{
+    debug!("Debut requete_attachments_fichiers");
     let mut attachments_manquants = HashSet::new();
 
     {
         let filtre = doc! { CHAMP_ATTACHMENTS_TRAITES: false };
         let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+
+        {
+            // Marquer message comme visites
+            let ops = doc!{
+                "$inc": {"attachments_retry": 1},
+                "$currentDate": {CHAMP_MODIFICATION: true},
+            };
+            collection.update_many(filtre.clone(), ops, None).await?;
+        }
+
         let mut curseur = collection.find(filtre, None).await?;
         while let Some(d) = curseur.next().await {
             let docres = d?;
@@ -57,11 +79,7 @@ pub async fn entretien_attachments<M>(middleware: &M) -> Result<(), Box<dyn Erro
         }
     }
 
-    let fuuids = Vec::from_iter(attachments_manquants.into_iter());
-    verification_attachments(middleware, fuuids).await?;
-
-    debug!("Fin entretien attachments");
-    Ok(())
+    Ok(Vec::from_iter(attachments_manquants.into_iter()))
 }
 
 async fn verification_attachments<M>(middleware: &M, fuuids: Vec<String>) -> Result<(), Box<dyn Error>>
@@ -94,6 +112,28 @@ async fn verification_attachments<M>(middleware: &M, fuuids: Vec<String>) -> Res
             }
         }
     }
+
+    Ok(())
+}
+
+async fn marquer_attachments_expires<M>(middleware: &M) -> Result<(), Box<dyn Error>>
+    where M: MongoDao + GenerateurMessages
+{
+    debug!("Debut verification_attachments");
+
+    let filtre = doc!{
+        CHAMP_ATTACHMENTS_TRAITES: false,
+        CHAMP_ATTACHMENTS_RETRY: {"$gte": 10}
+    };
+    let ops = doc!{
+        "$set": {
+            CHAMP_ATTACHMENTS_TRAITES: true,
+            "attachments_code": 1,
+        },
+        "$currentDate": { CHAMP_MODIFICATION: true },
+    };
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    collection.update_many(filtre, ops, None).await?;
 
     Ok(())
 }
