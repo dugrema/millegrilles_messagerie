@@ -1,15 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::sync::Arc;
 
 use log::{debug, error, info, warn};
 use millegrilles_common_rust::{serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
-use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
+use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::L2Prive;
-use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
@@ -19,7 +20,7 @@ use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMess
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::transactions::Transaction;
-use millegrilles_common_rust::verificateur::VerificateurMessage;
+use millegrilles_common_rust::verificateur::{ValidationOptions, VerificateurMessage};
 
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
@@ -74,7 +75,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
 
 async fn commande_poster<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("commande_poster Consommer commande : {:?}", & m.message);
     let commande: CommandePoster = m.message.get_msg().map_contenu(None)?;
@@ -113,7 +114,7 @@ async fn commande_poster<M>(middleware: &M, m: MessageValideAction, gestionnaire
 
 async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     debug!("commandes.commande_recevoir Consommer commande : {:?}", & m.message);
     let commande: CommandeRecevoirPost = m.message.get_msg().map_contenu(None)?;
@@ -144,7 +145,65 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
         }
     }
 
-    // TODO Valider message
+    let message_ref = &commande.message;
+
+    let cert_millegrille_pem = match message_ref.get("_millegrille") {
+        Some(c) => {
+            debug!("commande_recevoir Utiliser certificat de millegrille pour valider : {:?}", c);
+            let millegrille_pem: String = serde_json::from_value(c.to_owned())?;
+            Some(millegrille_pem)
+        },
+        None => {
+            debug!("commande_recevoir Aucun certificat de millegrille pour valider");
+            None
+        }
+    };
+
+    let enveloppe_cert: Arc<EnveloppeCertificat> = match message_ref.get("_certificat") {
+        Some(c) => {
+            let certificat_pem: Vec<String> = serde_json::from_value(c.to_owned())?;
+            match cert_millegrille_pem.as_ref() {
+                Some(c) => middleware.charger_enveloppe(&certificat_pem, None, Some(c.as_str())).await?,
+                None => {
+                    // Millegrille locale, charger le certificat fourni
+                    middleware.charger_enveloppe(&certificat_pem, None, None).await?
+                }
+            }
+        },
+        None => {
+            error!("commande_recevoir Erreur _certificat manquant");
+            let reponse_erreur = json!({"ok": false, "err": "Erreur, _certificat manquant"});
+            return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+        }
+    };
+
+    let mut message = MessageSerialise::from_serializable(&commande.message)?;
+    debug!("Valider message avec certificat {:?}", enveloppe_cert);
+    message.set_certificat(enveloppe_cert);
+
+    match cert_millegrille_pem.as_ref() {
+        Some(c) => {
+            let cert = middleware.charger_enveloppe(&vec![c.to_owned()], None, None).await?;
+            message.set_millegrille(cert);
+        },
+        None => ()
+    }
+
+    let options_validation = ValidationOptions::new(true, true, true);
+    match middleware.verifier_message(&mut message, Some(&options_validation)) {
+        Ok(resultat) => {
+            if ! resultat.valide() {
+                error!("commande_recevoir Erreur validation message : {:?}", resultat);
+                let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", resultat)});
+                return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+            }
+        },
+        Err(e) => {
+            error!("commande_recevoir Erreur validation message : {:?}", e);
+            let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", e)});
+            return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+        }
+    }
 
     // Traiter la transaction
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)

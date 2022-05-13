@@ -323,7 +323,7 @@ async fn get_batch_messages<M>(middleware: &M, local: bool, limit: i64)
 
 /// Pousse des messages locaux. Transfere le contenu dans la reception de chaque destinataire.
 async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao
+    where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("Pousser message : {:?}", message);
     let uuid_transaction = message.uuid_transaction.as_str();
@@ -390,7 +390,7 @@ fn mapper_destinataires(message: &DocOutgointProcessing, mapping: &DocMappingIdm
 }
 
 async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(Map<String, Value>, CommandePoster), String>
-    where M: MongoDao
+    where M: MongoDao + ValidateurX509
 {
     let collection_transactions = middleware.get_collection(NOM_COLLECTION_TRANSACTIONS)?;
     let filtre_transaction = doc! { "en-tete.uuid_transaction": uuid_transaction };
@@ -414,6 +414,15 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(M
         Err(e) => Err(format!("pompe_messages.charger_message Erreur chargement transaction message : {:?}", e))
     }?;
 
+    let fingerprint = message_mappe.message.fingerprint_certificat.as_str();
+    let pems = match middleware.get_certificat(fingerprint).await {
+        Some(c) => {
+            let pems: Vec<String> = c.get_pem_vec().into_iter().map(|c| c.pem).collect();
+            Some(pems)
+        },
+        None => None
+    };
+
     let mut val_message = commande.message;
     let mut keys_to_remove = Vec::new();
     for key in val_message.keys() {
@@ -423,6 +432,9 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(M
     }
     for key in keys_to_remove {
         val_message.remove(key.as_str());
+    }
+    if let Some(p) = pems {
+        val_message.insert("_certificat".into(), Value::from(p));
     }
 
     debug!("Message mappe : {:?}", val_message);
