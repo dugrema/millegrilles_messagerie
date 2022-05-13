@@ -170,6 +170,7 @@ pub struct MessageIncoming {
     pub message_chiffre: String,
     pub hachage_bytes: String,
     pub certificat_message: Vec<String>,
+    pub certificat_millegrille: Option<String>,
     pub attachments: Option<HashMap<String, bool>>,
 }
 
