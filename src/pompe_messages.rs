@@ -116,6 +116,7 @@ impl PompeMessages {
     {
         traiter_dns_unresolved(middleware, trigger).await;
         traiter_messages_locaux(middleware, trigger).await;
+        traiter_attachments_tiers(middleware, trigger).await;
         traiter_messages_tiers(middleware, trigger).await;
         expirer_messages(middleware, trigger).await;
         Ok(())
@@ -244,6 +245,79 @@ async fn traiter_messages_tiers_work<M>(middleware: &M, trigger: &MessagePompe)
     Ok(())
 }
 
+async fn traiter_attachments_tiers<M>(middleware: &M, trigger: &MessagePompe)
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    match traiter_attachments_tiers_work(middleware, trigger).await {
+        Ok(()) => (),
+        Err(e) => {
+            error!("traiter_attachments_tiers Erreur traitement : {:?}", e);
+        }
+    }
+}
+
+async fn traiter_attachments_tiers_work<M>(middleware: &M, trigger: &MessagePompe)
+    -> Result<(), Box<dyn Error>>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+
+    let ts_courant = Utc::now().timestamp();
+
+    let idmg_local = middleware.idmg();
+    let filtre = doc! { "idmgs_attachments_unprocessed.0": {"$exists": true} };
+    let sort = doc! { CHAMP_LAST_PROCESSED: 1 };
+    let options = FindOptions::builder()
+        .sort(sort)
+        .limit(20)
+        .build();
+
+    let mut curseur = collection.find(filtre, Some(options)).await?;
+    while let Some(r) = curseur.next().await {
+        let doc = r?;
+        debug!("traiter_attachments_tiers_work Result data : {:?}", doc);
+        let message_outgoing: DocOutgointProcessing = match convertir_bson_deserializable(doc) {
+            Ok(m) => m,
+            Err(e) => {
+                error!("traiter_attachments_tiers_work Erreur mapping message {:?}", e);
+                continue
+            }
+        };
+
+        let uuid_transaction = message_outgoing.uuid_transaction;
+        let uuid_message = message_outgoing.uuid_message;
+        let idmg_mapping_unprocessed = match message_outgoing.idmgs_attachments_unprocessed {
+            Some(i) => i,
+            None => {
+                todo!("Aucun idmg_mapping, retirer de idmgs_attachments_unprocessed");
+            }
+        };
+
+        for idmg in idmg_mapping_unprocessed {
+            debug!("traiter_attachments_tiers_work Remettre upload attachments vers tiers sur la Q pour message {} idmg {}", uuid_message, idmg);
+            // Emettre trigger pour uploader les fichiers
+            let commande = CommandePousserAttachments {
+                uuid_message: uuid_message.clone(),
+                idmg_destination: idmg.clone(),
+            };
+            let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, "pousserAttachment")
+                .exchanges(vec![Securite::L1Public])
+                .build();
+            middleware.transmettre_commande(routage, &commande, false).await?;
+
+            // Incrementer push count
+            let filtre = doc! { "uuid_transaction": &uuid_transaction };
+            let ops = doc! {
+                "$inc": {format!("idmgs_mapping.{}.push_count", &idmg): 1},
+                "$currentDate": {"last_processed": true}
+            };
+            collection.update_one(filtre, ops, None).await?;
+        }
+    }
+
+    Ok(())
+}
+
 async fn expirer_messages<M>(middleware: &M, trigger: &MessagePompe)
     where M: MongoDao + GenerateurMessages
 {
@@ -282,7 +356,6 @@ async fn expirer_message_resolve<M>(middleware: &M, trigger: &MessagePompe) -> R
 }
 
 // Retourne une batch de messages non traites pour un idmg.
-// async fn get_batch_messages<M>(middleware: &M, idmg: &str)
 async fn get_batch_messages<M>(middleware: &M, local: bool, limit: i64)
     -> Result<Vec<DocOutgointProcessing>, Box<dyn Error>>
     where M: ValidateurX509 + MongoDao
@@ -507,7 +580,7 @@ pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, id
                     Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur update message pour upload attachments : {:?}", e))
                 }?;
 
-                // TODO Emettre trigger pour uploader les fichiers
+                // Emettre trigger pour uploader les fichiers
                 let commande = CommandePousserAttachments {
                     uuid_message: uuid_message.into(),
                     idmg_destination: idmg.into(),
@@ -697,14 +770,6 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
         .build();
     middleware.transmettre_commande(routage, &commande, false).await?;
 
-    // TODO Fix marquer traitement apres upload
-    // warn!{"Marquer message pousse - TODO fix, simulation seulement"};
-    // for destination in &commande.destinations {
-    //     let idmg_traitement = destination.idmg.as_str();
-    //     let destinataires = &destination.destinataires;
-    //     marquer_outgoing_resultat(middleware, uuid_message, idmg_traitement, &destinataires, true, 500).await?;
-    // }
-
     Ok(())
 }
 
@@ -797,13 +862,13 @@ async fn get_batch_uuid_transactions<M>(middleware: &M, trigger: &MessagePompe)
 async fn expirer_message_retry<M>(middleware: &M, trigger: &MessagePompe) -> Result<(), Box<dyn Error>>
     where M: MongoDao
 {
-    const RETRY_LIMIT: i32 = 3;
+    const RETRY_LIMIT: i32 = 5;
 
     let options = AggregateOptions::builder().build();
 
     let pipeline = vec! [
         // Match sur les idmgs specifies au besoin. Limiter matching si grande quantite en attente.
-        doc! {"$match": {"idmgs_unprocessed.0": {"$exists": true}} },
+        doc! {"$match": { "$or": [{"idmgs_unprocessed.0": {"$exists": true}}, {"idmgs_attachments_unprocessed.0": {"$exists": true}}]} },
         doc! {"$limit": 1000},  // Limite quantite max a traiter (safety)
 
         // Expansion de tous les idmgs par message
@@ -838,7 +903,10 @@ async fn expirer_message_retry<M>(middleware: &M, trigger: &MessagePompe) -> Res
 
         let filtre = doc! { "uuid_transaction": uuid_transaction };
         let ops = doc! {
-            "$pull": {"idmgs_unprocessed": &idmg},
+            "$pull": {
+                "idmgs_unprocessed": &idmg,
+                "idmgs_attachments_unprocessed": &idmg,
+            },
             "$unset": {format!("idmgs_mapping.{}.next_push_time", idmg): true}
         };
 
