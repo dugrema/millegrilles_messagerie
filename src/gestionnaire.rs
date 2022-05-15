@@ -220,8 +220,13 @@ pub fn preparer_queues() -> Vec<QueueType> {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L4Secure});
     }
 
-    rk_volatils.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_FICHIERS_NOM, EVENEMENT_FICHIERS_CONSIGNE), exchange: Securite::L2Prive});
-    // rk_volatils.push(ConfigRoutingExchange {routing_key: format!("evenement.{}.{}", DOMAINE_POSTMASTER, COMMANDE_UPLOAD_ATTACHMENT), exchange: Securite::L1Public});
+    let evenements_fichiers = vec![
+        EVENEMENT_FICHIERS_CONSIGNE,
+        EVENEMENT_CONFIRMER_ETAT_FUUIDS,
+    ];
+    for ev in evenements_fichiers {
+        rk_volatils.push(ConfigRoutingExchange { routing_key: format!("evenement.{}.{}", DOMAINE_FICHIERS_NOM, ev), exchange: Securite::L2Prive });
+    }
 
     let mut queues = Vec::new();
 

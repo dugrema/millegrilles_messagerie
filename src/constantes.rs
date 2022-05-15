@@ -30,6 +30,7 @@ pub const REQUETE_GET_REFERENCE_MESSAGES: &str = "getReferenceMessages";
 
 pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
 pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";
+pub const COMMANDE_ACTIVITE_FUUIDS: &str = "confirmerActiviteFuuids";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";
@@ -51,6 +52,7 @@ pub const EVENEMENT_MESSAGE_LU: &str = "messageLu";
 pub const EVENEMENT_MESSAGES_SUPPRIMES: &str = "messagesSupprimes";
 pub const EVENEMENT_CONTACTS_SUPPRIMES: &str = "contactsSupprimes";
 pub const EVENEMENT_FICHIERS_CONSIGNE: &str = "consigne";
+pub const EVENEMENT_CONFIRMER_ETAT_FUUIDS: &str = "confirmerEtatFuuids";
 
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";

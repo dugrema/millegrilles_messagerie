@@ -368,3 +368,31 @@ pub struct MessageIncomingProjectionAttachments {
     pub attachments: Option<HashMap<String, bool>>,
     pub attachments_recus: Option<bool>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EvenementConfirmerEtatFuuids {
+    pub fuuids: Vec<String>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RowEtatFuuid {
+    pub fuuids: Vec<String>,
+    pub supprime: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequeteConfirmerEtatFuuids {
+    pub fuuids: Vec<String>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseConfirmerEtatFuuids {
+    pub fuuids: Vec<ConfirmationEtatFuuid>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfirmationEtatFuuid {
+    pub fuuid: String,
+    pub supprime: bool,
+}
+
