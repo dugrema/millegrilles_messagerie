@@ -179,17 +179,21 @@ async fn repondre_fuuids<M>(middleware: &M, evenement_fuuids: &Vec<String>)
         "supprime": false
     };
 
+    debug!("repondre_fuuids filtre {:?}", filtre);
+
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
     let mut fichiers_confirmation = Vec::new();
     let mut curseur = collection.find(filtre, opts).await?;
     while let Some(d) = curseur.next().await {
         let record: RowEtatFuuid = convertir_bson_deserializable(d?)?;
-        for fuuid in record.fuuids.into_iter() {
+        let attachments_traites = record.attachments_traites;
+        for (fuuid, traite) in record.attachments.into_iter() {
             if fuuids.contains(&fuuid) {
                 fuuids.remove(&fuuid);
                 // Note: on ignore les fichiers supprimes == true, on va laisser la chance a
                 //       un autre module d'en garder possession.
-                if record.supprime == false {
+                let conserver = attachments_traites == false || traite == true;
+                if conserver == false || record.supprime == false {
                     fichiers_confirmation.push(ConfirmationEtatFuuid { fuuid, supprime: record.supprime });
                 }
             }

@@ -376,8 +376,9 @@ pub struct EvenementConfirmerEtatFuuids {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RowEtatFuuid {
-    pub fuuids: Vec<String>,
+    pub attachments: HashMap<String, bool>,
     pub supprime: bool,
+    pub attachments_traites: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
