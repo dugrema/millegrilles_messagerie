@@ -152,6 +152,7 @@ pub struct RequeteGetMessages {
     pub skip: Option<u64>,
     pub uuid_messages: Option<Vec<String>>,
     pub inclure_supprime: Option<bool>,
+    pub messages_envoyes: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -159,17 +160,19 @@ pub struct RequeteGetReferenceMessages {
     pub limit: Option<i64>,
     pub date_minimum: Option<DateEpochSeconds>,
     pub inclure_supprime: Option<bool>,
+    pub messages_envoyes: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncoming {
     pub uuid_transaction: String,
-    pub lu: bool,
+    pub lu: Option<bool>,
     pub supprime: bool,
-    pub date_reception: DateEpochSeconds,
+    pub date_reception: Option<DateEpochSeconds>,
+    pub date_envoi: Option<DateEpochSeconds>,
     pub message_chiffre: String,
     pub hachage_bytes: String,
-    pub certificat_message: Vec<String>,
+    pub certificat_message: Option<Vec<String>>,
     pub certificat_millegrille: Option<String>,
     pub attachments: Option<HashMap<String, bool>>,
 }
@@ -177,14 +180,26 @@ pub struct MessageIncoming {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingReference {
     pub uuid_transaction: String,
-    pub lu: bool,
+    pub lu: Option<bool>,
     pub supprime: bool,
-    pub date_reception: DateEpochSeconds,
+    pub date_reception: Option<DateEpochSeconds>,
+    pub date_envoi: Option<DateEpochSeconds>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageOutgoing {
+    pub uuid_transaction: String,
+    pub supprime: bool,
+    pub date_envoi: DateEpochSeconds,
+    pub message_chiffre: String,
+    pub hachage_bytes: String,
+    pub attachments: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ParametresGetPermissionMessages {
     pub uuid_transaction_messages: Vec<String>,
+    pub messages_envoyes: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -192,6 +207,13 @@ pub struct MessageIncomingProjectionPermission {
     pub uuid_transaction: String,
     pub hachage_bytes: String,
     pub attachments: Option<HashMap<String, bool>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageOutgoingProjectionPermission {
+    pub uuid_transaction: String,
+    pub hachage_bytes: String,
+    pub attachments: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

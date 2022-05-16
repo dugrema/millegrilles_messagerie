@@ -19,7 +19,7 @@ use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOp
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::redis::ToRedisArgs;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
-use millegrilles_common_rust::serde_json::Value;
+use millegrilles_common_rust::serde_json::{Map, Value};
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::verificateur::ValidationOptions;
@@ -84,6 +84,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
 {
     debug!("transaction_poster Consommer transaction : {:?}", &transaction);
     let uuid_transaction = transaction.get_uuid_transaction();
+    let estampille = transaction.get_estampille();
     let user_id = match transaction.get_enveloppe_certificat() {
         Some(e) => e.get_user_id()?.to_owned(),
         None => None
@@ -104,8 +105,25 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         Ok(d) => d,
         Err(e) => Err(format!("transactions.transaction_poster Erreur conversion transaction en bson : {:?}", e))?
     };
-    doc_bson_transaction.insert("uuid_transaction", &uuid_message);
-    doc_bson_transaction.insert("user_id", &user_id);
+    let mut doc_outgoing = match doc_bson_transaction.get_document("message") {
+        Ok(m) => m.to_owned(),
+        Err(e) => Err(format!("transactions.transaction_poster Erreur conversion message en doc_bson : {:?}", e))?
+    };
+    doc_outgoing.insert("uuid_transaction", &uuid_message);
+    doc_outgoing.insert("user_id", &user_id);
+    doc_outgoing.insert("supprime", false);
+    doc_outgoing.insert(CHAMP_DATE_ENVOI, DateEpochSeconds::from(estampille.to_owned()));
+
+    // Ajouter map destinataires
+    let mut map_destinataires = Map::new();
+    for dest in &transaction_poster.get_destinataires() {
+        map_destinataires.insert(dest.to_owned(), Value::from(0));
+    }
+    let map_destinataires = match convertir_to_bson(map_destinataires) {
+        Ok(m) => m,
+        Err(e) => Err(format!("transactions.transaction_poster Erreur conversion map_destinataires en doc_bson : {:?}", e))?
+    };
+    doc_outgoing.insert("destinataires", map_destinataires);
 
     let mut dns_adresses: HashSet<String> = HashSet::new();
     let mut destinataires = Array::new();
@@ -156,13 +174,13 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     };
 
     // Inserer document de message dans outgoing
-    // {
-    //     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
-    //     match collection.insert_one(doc_bson_transaction, None).await {
-    //         Ok(_) => (),
-    //         Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing {} : {:?}", uuid_transaction, e))?
-    //     }
-    // }
+    {
+        let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+        match collection.insert_one(doc_outgoing, None).await {
+            Ok(_) => (),
+            Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing {} : {:?}", uuid_transaction, e))?
+        }
+    }
 
     // Inserer document de traitement dans outgoing_processing
     {

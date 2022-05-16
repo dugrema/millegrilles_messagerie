@@ -95,10 +95,21 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
     };
 
     let inclure_supprime = match requete.inclure_supprime { Some(b) => b, None => false };
+    let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
+
+    let champ_date = match messages_envoyes {
+        true => CHAMP_DATE_ENVOI,
+        false => CHAMP_DATE_RECEPTION
+    };
+
+    let nom_collection = match messages_envoyes {
+        true => NOM_COLLECTION_OUTGOING,
+        false => NOM_COLLECTION_INCOMING,
+    };
 
     let opts = FindOptions::builder()
         // .hint(Hint::Name(String::from("fichiers_activite_recente")))
-        .sort(doc!{CHAMP_DATE_RECEPTION: -1})
+        .sort(doc!{champ_date: -1})
         .limit(limit)
         .skip(skip)
         .build();
@@ -111,9 +122,9 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
         filtre.insert("uuid_transaction", doc!{"$in": um});
     }
 
-    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let collection = middleware.get_collection(nom_collection)?;
     let mut curseur = collection.find(filtre, opts).await?;
-    let fichiers_mappes = mapper_messages_curseur(curseur).await?;
+    let fichiers_mappes = mapper_messages_curseur(curseur, messages_envoyes).await?;
 
     let reponse = json!({ "messages": fichiers_mappes });
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
@@ -138,9 +149,20 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
     };
 
     let inclure_supprime = match requete.inclure_supprime { Some(b) => b, None => false };
+    let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
+
+    let champ_date = match messages_envoyes {
+        true => CHAMP_DATE_ENVOI,
+        false => CHAMP_DATE_RECEPTION
+    };
+
+    let nom_collection = match messages_envoyes {
+        true => NOM_COLLECTION_OUTGOING,
+        false => NOM_COLLECTION_INCOMING,
+    };
 
     let opts = FindOptions::builder()
-        .sort(doc!{CHAMP_DATE_RECEPTION: 1})
+        .sort(doc!{champ_date: 1})
         .limit(limit)
         .build();
     let mut filtre = doc!{CHAMP_USER_ID: user_id};
@@ -148,10 +170,10 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
         filtre.insert(CHAMP_SUPPRIME, false);
     }
     if let Some(d) = requete.date_minimum.as_ref() {
-        filtre.insert(CHAMP_DATE_RECEPTION, doc!{"$gte": d});
+        filtre.insert(champ_date, doc!{"$gte": d});
     }
 
-    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let collection = middleware.get_collection(nom_collection)?;
     let mut curseur = collection.find(filtre, opts).await?;
     let fichiers_mappes = mapper_reference_messages_curseur(curseur).await?;
 
@@ -159,17 +181,32 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }
 
-async fn mapper_messages_curseur(mut curseur: Cursor<Document>) -> Result<Value, Box<dyn Error>> {
-    let mut messages_mappes = Vec::new();
+async fn mapper_messages_curseur(mut curseur: Cursor<Document>, type_envoi: bool) -> Result<Value, Box<dyn Error>> {
 
-    while let Some(fresult) = curseur.next().await {
-        let fcurseur = fresult?;
-        let message_db = mapper_message_db(fcurseur)?;
-        messages_mappes.push(message_db);
-    }
+    let messages_value = match type_envoi {
+        true => {
+            let mut messages_mappes = Vec::new();
+            while let Some(fresult) = curseur.next().await {
+                let fcurseur = fresult?;
+                let message_db: MessageOutgoing = convertir_bson_deserializable(fcurseur)?;
+                messages_mappes.push(message_db);
+            }
+            // Convertir fichiers en Value (serde pour reponse json)
+            serde_json::to_value(messages_mappes)
+        },
+        false => {
+            let mut messages_mappes = Vec::new();
+            while let Some(fresult) = curseur.next().await {
+                let fcurseur = fresult?;
+                let message_db: MessageIncoming = convertir_bson_deserializable(fcurseur)?;
+                messages_mappes.push(message_db);
+            }
+            // Convertir fichiers en Value (serde pour reponse json)
+            serde_json::to_value(messages_mappes)
+        }
+    }?;
 
-    // Convertir fichiers en Value (serde pour reponse json)
-    Ok(serde_json::to_value(messages_mappes)?)
+    Ok(messages_value)
 }
 
 async fn mapper_reference_messages_curseur(mut curseur: Cursor<Document>) -> Result<Value, Box<dyn Error>> {
@@ -210,6 +247,13 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
     let requete: ParametresGetPermissionMessages = m.message.get_msg().map_contenu(None)?;
     debug!("requete_get_permission parsed : {:?}", requete);
 
+    let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
+
+    let nom_collection = match messages_envoyes {
+        true => NOM_COLLECTION_OUTGOING,
+        false => NOM_COLLECTION_INCOMING,
+    };
+
     // Utiliser certificat du message client (requete) pour demande de rechiffrage
     let pem_rechiffrage: Vec<String> = match &m.message.certificat {
         Some(c) => {
@@ -225,18 +269,33 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
     };
     let projection = doc! {"uuid_transaction": true, "attachments": true, "hachage_bytes": true};
     let opts = FindOptions::builder().projection(projection).limit(1000).build();
-    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let collection = middleware.get_collection(nom_collection)?;
     let mut curseur = collection.find(filtre, Some(opts)).await?;
 
     let mut hachage_bytes = HashSet::new();
     while let Some(fresult) = curseur.next().await {
         let doc_result = fresult?;
-        let doc_message_incoming: MessageIncomingProjectionPermission = convertir_bson_deserializable(doc_result)?;
-        hachage_bytes.insert(doc_message_incoming.hachage_bytes);
+        match messages_envoyes {
+            true => {
+                let doc_message_outgoing: MessageOutgoingProjectionPermission = convertir_bson_deserializable(doc_result)?;
+                hachage_bytes.insert(doc_message_outgoing.hachage_bytes);
 
-        if let Some(attachments) = &doc_message_incoming.attachments {
-            for (h, _) in attachments {
-                hachage_bytes.insert(h.to_owned());
+                if let Some(attachments) = &doc_message_outgoing.attachments {
+                    for h in attachments {
+                        hachage_bytes.insert(h.to_owned());
+                    }
+                }
+
+            },
+            false => {
+                let doc_message_incoming: MessageIncomingProjectionPermission = convertir_bson_deserializable(doc_result)?;
+                hachage_bytes.insert(doc_message_incoming.hachage_bytes);
+
+                if let Some(attachments) = &doc_message_incoming.attachments {
+                    for (h, _) in attachments {
+                        hachage_bytes.insert(h.to_owned());
+                    }
+                }
             }
         }
     }
