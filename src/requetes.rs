@@ -173,6 +173,8 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
         filtre.insert(champ_date, doc!{"$gte": d});
     }
 
+    debug!("requete_get_reference_messages Filter messages : {:?}", filtre);
+
     let collection = middleware.get_collection(nom_collection)?;
     let mut curseur = collection.find(filtre, opts).await?;
     let fichiers_mappes = mapper_reference_messages_curseur(curseur).await?;
