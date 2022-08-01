@@ -8,6 +8,7 @@ use millegrilles_common_rust::chrono::serde::ts_seconds_option;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
+use crate::constantes::*;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RequeteTopologieResolveIdmg {
@@ -70,7 +71,7 @@ pub struct AdresseMessagerie {
 impl AdresseMessagerie {
 
     pub fn new(destinataire: &str) -> Result<Self, String> {
-        let mut dest_split = destinataire.split("/");
+        let mut dest_split = destinataire.split(CONST_ADRESSE_SEPARATEUR_HOST);
 
         let user: &str = match dest_split.next() {
             Some(mut u) => {

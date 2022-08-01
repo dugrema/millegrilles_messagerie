@@ -129,7 +129,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     let mut destinataires = Array::new();
     let liste_destinataires = transaction_poster.get_destinataires();
     for dest in liste_destinataires.into_iter() {
-        let mut dest_split = dest.split("/");
+        let mut dest_split = dest.split(CONST_ADRESSE_SEPARATEUR_HOST);
         let mut user: &str = match dest_split.next() {
             Some(u) => u,
             None => {

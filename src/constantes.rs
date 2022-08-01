@@ -87,3 +87,6 @@ pub const CODE_UPLOAD_DEBUT: u32 = 1;
 pub const CODE_UPLOAD_ENCOURS: u32 = 2;
 pub const CODE_UPLOAD_TERMINE: u32 = 3;
 pub const CODE_UPLOAD_ERREUR: u32 = 4;
+
+pub const CONST_ADRESSE_SEPARATEUR_HOST: &str = ":";
+pub const CONST_ADRESSE_PREFIXE_USAGER: &str = "@";
