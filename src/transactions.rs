@@ -145,8 +145,8 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
             }
         };
 
-        if user.starts_with("@") {
-            user = user.trim_start_matches("@");
+        if user.starts_with(CONST_ADRESSE_PREFIXE_USAGER) {
+            user = user.trim_start_matches(CONST_ADRESSE_PREFIXE_USAGER);
         }
         dns_adresses.insert(dns_addr.into());
         let flags = doc! {
