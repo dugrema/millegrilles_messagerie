@@ -650,6 +650,15 @@ pub async fn marquer_outgoing_resultat<M>(
         if message_complete {
             // Creer transaction message complete
             debug!("marquer_outgoing_resultat Traitement message {} complete pour toutes les millegrilles", uuid_message);
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_TRANSFERT_COMPLETE)
+                .exchanges(vec![Securite::L4Secure])
+                .build();
+            let t = TransactionTransfertComplete {
+                uuid_message: uuid_message.into(),
+                message_complete: Some(true),
+                attachments_completes: Some(true)
+            };
+            middleware.soumettre_transaction(routage.clone(), &t, false).await?;
         }
     }
 
