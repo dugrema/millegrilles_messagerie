@@ -683,7 +683,7 @@ pub async fn marquer_outgoing_resultat<M>(
 }
 
 pub fn verifier_message_complete<M>(middleware: &M, message: &DocOutgointProcessing) -> bool
-    where M: ValidateurX509 + GenerateurMessages + MongoDao
+    where M: GenerateurMessages + MongoDao
 {
     debug!("verifier_message_complete Pousser message : {:?}", message);
 
@@ -1021,7 +1021,7 @@ async fn expirer_message_retry<M>(middleware: &M, trigger: &MessagePompe) -> Res
 }
 
 pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
-    where M: MongoDao
+    where M: GenerateurMessages + MongoDao
 {
     debug!("verifier_fin_transferts_attachments pour {:?}", doc_outgoing);
     let idmgs_processing = match &doc_outgoing.idmgs_attachments_unprocessed {
@@ -1062,6 +1062,9 @@ pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing
     }
 
     let filtre = doc! { CHAMP_UUID_MESSAGE: &doc_outgoing.uuid_message };
+    let options = FindOneAndUpdateOptions::builder()
+        .return_document(ReturnDocument::After)
+        .build();
     let mut unset_ops = doc! {};
     // for idmg in idmgs_completes {
     //     unset_ops.insert(format!("idmgs_mapping.{}.attachments_restants", idmg), true);
@@ -1073,7 +1076,20 @@ pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing
         "$currentDate": {CHAMP_LAST_PROCESSED: true},
     };
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
-    collection.update_one(filtre, ops, None).await?;
+    if let Some(d) = collection.find_one_and_update(filtre, ops, options).await? {
+        let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(d)?;
+        if verifier_message_complete(middleware, &doc_outgoing) {
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_TRANSFERT_COMPLETE)
+                .exchanges(vec![Securite::L4Secure])
+                .build();
+            let t = TransactionTransfertComplete {
+                uuid_message: doc_outgoing.uuid_message,
+                message_complete: Some(true),
+                attachments_completes: Some(true)
+            };
+            middleware.soumettre_transaction(routage.clone(), &t, false).await?;
+        }
+    }
 
     Ok(())
 }
