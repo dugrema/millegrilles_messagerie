@@ -398,7 +398,7 @@ async fn get_batch_messages<M>(middleware: &M, local: bool, limit: i64)
 async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
-    debug!("Pousser message : {:?}", message);
+    debug!("pousser_message_local Pousser message : {:?}", message);
     let uuid_transaction = message.uuid_transaction.as_str();
 
     // Mapping idmg local
@@ -410,10 +410,10 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     let mapping: &DocMappingIdmg = if let Some(m) = message.idmgs_mapping.as_ref() {
         match m.get(idmg_local.as_str()) {
             Some(m) => Ok(m),
-            None => Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
+            None => Err(format!("pousser_message_local Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
         }
     } else {
-        Err(format!("Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
+        Err(format!("pousser_message_local Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
     }?;
 
     // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
@@ -431,9 +431,8 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
         .exchanges(vec![Securite::L2Prive])
         .build();
 
-    // TODO - Mettre pompe sur sa propre Q, blocking true
-    middleware.transmettre_commande(routage, &commande, false).await?;
-    // debug!("Reponse commande message local : {:?}", reponse);
+    let reponse = middleware.transmettre_commande(routage, &commande, true).await?;
+    debug!("pousser_message_local Reponse commande message local : {:?}", reponse);
 
     Ok(())
 }

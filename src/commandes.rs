@@ -128,7 +128,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     }
 
     let user_id = m.get_user_id();
-    match m.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
+    match m.verifier_exchanges(vec!(Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
         true => {
             // Compte systeme
         },

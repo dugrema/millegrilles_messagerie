@@ -286,22 +286,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
 {
     debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
     let uuid_transaction = transaction.get_uuid_transaction().to_owned();
-    // let certificat_millegrille_pem = match transaction.get_enveloppe_certificat() {
-    //     Some(c) => c.get_pem_ca()?,
-    //     None => None
-    // };
-    // debug!("transaction_recevoir transaction contenu {:?}", transaction.get_contenu());
-    // let certificat_millegrille_pem = match transaction.
-    //     get_contenu().get_str("_millegrille") {
-    //     Ok(c) => Some(c.to_owned()),
-    //     Err(e) => None
-    // };
-    // debug!("transaction_recevoir Certificat millegrille {:?}", certificat_millegrille_pem);
 
-    // let transaction_recevoir: TransactionRecevoir = match transaction.clone().convertir::<TransactionRecevoir>() {
-    //     Ok(t) => t,
-    //     Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
-    // };
     let message_recevoir: CommandeRecevoirPost = match transaction.clone().convertir::<CommandeRecevoirPost>() {
         Ok(t) => t,
         Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
@@ -364,16 +349,21 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     let attachments = message_enveloppe.attachments;
 
     // Retirer la part serveur du destinataire
-    let destinataires = {
+    let mut destinataires_resultat = HashMap::new();
+    let (destinataires_nomusager, destinataires_adresses) = {
         let mut destinataires = Vec::new();
+        let mut destinataires_adresses = HashMap::new();
         for adresse in &message_recevoir.destinataires {
             match AdresseMessagerie::new(adresse.as_str()) {
-                Ok(a) => destinataires.push(a.user),
+                Ok(a) => {
+                    destinataires_adresses.insert(a.user.clone(), adresse.to_owned());
+                    destinataires_resultat.insert(adresse.to_owned(), 404);  // Defaut usager inconnu
+                    destinataires.push(a.user);
+                },
                 Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
             }
         }
-
-        destinataires
+        (destinataires, destinataires_adresses)
     };
 
     // Resolve destinataires nom_usager => user_id
@@ -381,7 +371,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
             .exchanges(vec![Securite::L4Secure])
             .build();
-        let requete = json!({"noms_usagers": &destinataires});
+        let requete = json!({"noms_usagers": destinataires_nomusager});
         debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
         let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
         debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
@@ -397,10 +387,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     };
 
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    // let message_recu_bson = match map_serializable_to_bson(&message_recu) {
-    //     Ok(m) => m,
-    //     Err(e) => Err(format!("transactions.transaction_recevoir Erreur insertion message {} : {:?}", uuid_transaction, e))?
-    // };
+
     let certificat_usager = middleware.get_certificat(fingerprint_usager.as_str()).await;
     let certificat_usager_pem: Vec<String> = match certificat_usager {
         Some(c) => {
@@ -430,6 +417,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     };
 
     for (nom_usager, user_id) in &reponse_mappee.usagers {
+        let adresse_usager = destinataires_adresses.get(nom_usager);
         let now: Bson = DateEpochSeconds::now().into();
         match user_id {
             Some(u) => {
@@ -455,13 +443,27 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                 }
 
                 debug!("transaction_recevoir Inserer message {:?}", doc_user_reception);
-                if let Err(e) = collection.insert_one(&doc_user_reception, None).await {
-                    let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
-                    if erreur_duplication {
-                        warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", doc_user_reception);
-                        return middleware.reponse_ok();
-                    } else {
-                        Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
+                match collection.insert_one(&doc_user_reception, None).await {
+                    Ok(_r) => {
+                        // Marquer usager comme trouve et traite
+                        if let Some(ua) = adresse_usager {
+                            destinataires_resultat.insert(ua.to_owned(), 201);  // Message cree pour usager
+                        }
+                    },
+                    Err(e) => {
+                        let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+                        if erreur_duplication {
+                            warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", doc_user_reception);
+                            if let Some(ua) = adresse_usager {
+                                destinataires_resultat.insert(ua.to_owned(), 200);  // Message deja traite
+                            }
+                            return middleware.reponse_ok();
+                        } else {
+                            if let Some(ua) = adresse_usager {
+                                destinataires_resultat.insert(ua.to_owned(), 500);  // Erreur de traitement
+                            }
+                            Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
+                        }
                     }
                 }
 
@@ -490,7 +492,11 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         }
     }
 
-    middleware.reponse_ok()
+    let reponse = json!({"ok": true, "usagers": destinataires_resultat});
+    match middleware.formatter_reponse(&reponse, None) {
+        Ok(r) => Ok(Some(r)),
+        Err(e) => Err(format!("transactions.transaction_recevoir Erreur formattage reponse : {:?}", e))?
+    }
 }
 
 async fn transaction_initialiser_profil<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
