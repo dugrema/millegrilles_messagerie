@@ -529,12 +529,14 @@ pub async fn marquer_outgoing_resultat<M>(
     debug!("marquer_outgoing_resultat Marquer idmg {} comme pousse pour message {}", idmg, uuid_message);
 
     // Mapper destinataires par code
-    let map_codes_destinataires = {
+    let (map_codes_destinataires, map_destinataires_code) = {
+        let mut map_destinataires_code: HashMap<String, i32> = HashMap::new();
         let mut map_codes_destinataires: HashMap<i32, Vec<&String>> = HashMap::new();
         if let Some(d) = destinataires {
             for destinataire in d {
                 let code = destinataire.code;
                 let destinataire_adresse = &destinataire.destinataire;
+                map_destinataires_code.insert(destinataire_adresse.to_owned(), code);
                 match map_codes_destinataires.get_mut(&code) {
                     Some(mut v) => v.push(destinataire_adresse),
                     None => {
@@ -545,7 +547,7 @@ pub async fn marquer_outgoing_resultat<M>(
                 }
             }
         }
-        map_codes_destinataires
+        (map_codes_destinataires, map_destinataires_code)
     };
 
     // Marquer process comme succes pour reception sur chaque usager
@@ -592,7 +594,6 @@ pub async fn marquer_outgoing_resultat<M>(
                 },
                 Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur sauvegarde transaction, conversion : {:?}", e))
             }?;
-
         }
 
         doc_outgoing
@@ -605,6 +606,20 @@ pub async fn marquer_outgoing_resultat<M>(
         }?,
         None => return Ok(())  // Rien a faire
     };
+
+    if let Some(user_id) = &doc_mappe.user_id {
+        // Emettre une transaction avec les codes pour chaque usager
+        let confirmation = ConfirmerTransmissionMessageMillegrille {
+            uuid_message: uuid_message.to_owned(),
+            user_id: user_id.clone(),
+            idmg: idmg.to_owned(),
+            destinataires: map_destinataires_code.clone(),
+        };
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE)
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        middleware.soumettre_transaction(routage, &confirmation, false).await?;
+    }
 
     let millegrille_completee = match &doc_mappe.attachments {
         Some(a) => {

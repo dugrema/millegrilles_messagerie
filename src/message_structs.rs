@@ -432,3 +432,11 @@ pub struct ConfirmerMessageComplete {
     pub uuid_message: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfirmerTransmissionMessageMillegrille {
+    pub uuid_message: String,
+    pub user_id: String,
+    pub idmg: String,
+    pub destinataires: HashMap<String, i32>,
+}
+

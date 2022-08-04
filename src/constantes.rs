@@ -40,6 +40,7 @@ pub const TRANSACTION_LU: &str = "lu";
 pub const TRANSACTION_TRANSFERT_COMPLETE: &str = "transfertComplete";
 pub const TRANSACTION_SUPPRIMER_MESSAGES: &str = "supprimerMessages";
 pub const TRANSACTION_SUPPRIMER_CONTACTS: &str = "supprimerContacts";
+pub const TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE: &str = "confirmerTransmissionMillegrille";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 

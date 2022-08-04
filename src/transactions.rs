@@ -117,7 +117,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     // Ajouter map destinataires
     let mut map_destinataires = Map::new();
     for dest in &transaction_poster.get_destinataires() {
-        map_destinataires.insert(dest.to_owned(), Value::from(0));
+        map_destinataires.insert(dest.to_owned(), Value::Null);
     }
     let map_destinataires = match convertir_to_bson(map_destinataires) {
         Ok(m) => m,
