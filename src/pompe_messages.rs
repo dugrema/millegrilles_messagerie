@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use millegrilles_common_rust::tokio::sync::mpsc;
 use millegrilles_common_rust::tokio::sync::mpsc::{Receiver, Sender};
-use millegrilles_common_rust::mongodb::options::{AggregateOptions, CountOptions, FindOneAndUpdateOptions, FindOptions, Hint, UpdateOptions};
+use millegrilles_common_rust::mongodb::options::{AggregateOptions, CountOptions, FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
 
 use log::{debug, error, info, warn};
 use millegrilles_common_rust::async_trait::async_trait;
@@ -560,6 +560,7 @@ pub async fn marquer_outgoing_resultat<M>(
             ];
             let options = FindOneAndUpdateOptions::builder()
                 .array_filters(array_filters.clone())
+                .return_document(ReturnDocument::After)
                 .build();
 
             let mut set_ops = doc! {
@@ -597,18 +598,21 @@ pub async fn marquer_outgoing_resultat<M>(
         doc_outgoing
     };
 
-    let idmg_local = middleware.idmg();
+    let doc_mappe: DocOutgointProcessing = match doc_outgoing {
+        Some(d) => match convertir_bson_deserializable(d) {
+            Ok(d) => Ok(d),
+            Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur conversion DocOutgoingProcessing : {:?}", e))
+        }?,
+        None => return Ok(())  // Rien a faire
+    };
 
-    if idmg != idmg_local {
-        if let Some(d) = doc_outgoing {
-            let doc_mappe: DocOutgointProcessing = match convertir_bson_deserializable(d) {
-                Ok(d) => Ok(d),
-                Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur conversion DocOutgoingProcessing : {:?}", e))
-            }?;
-            if let Some(a) = doc_mappe.attachments {
+    let millegrille_completee = match &doc_mappe.attachments {
+        Some(a) => {
+            let idmg_local = middleware.idmg();
+            if idmg != idmg_local {
                 // Ajouter attachments au mapping du idmg pour transfert
                 let ops = doc! {
-                    "$set": {format!("idmgs_mapping.{}.attachments_restants", idmg): &a},
+                    "$set": {format!("idmgs_mapping.{}.attachments_restants", idmg): a},
                     "$addToSet": {"idmgs_attachments_unprocessed": &idmg},
                 };
                 match collection_outgoing_processing.update_one(filtre_outgoing, ops, None).await {
@@ -625,11 +629,49 @@ pub async fn marquer_outgoing_resultat<M>(
                     .exchanges(vec![Securite::L1Public])
                     .build();
                 middleware.transmettre_commande(routage, &commande, false).await?;
+
+                false  // Pas complete
+            } else {
+                // Complete pour millegrille, aucuns fichiers a transferer (meme millegrille)
+                true
             }
+        },
+        None => {
+            // Complete pour millegrille, aucuns attachment
+            true
+        }
+    };
+
+    if millegrille_completee {
+        debug!("marquer_outgoing_resultat Traitement message {} complete pour millegrille {}", uuid_message, idmg);
+
+        // Verifier si le message est completement traite pour emettre transaction complete
+        let message_complete = verifier_message_complete(middleware, &doc_mappe);
+        if message_complete {
+            // Creer transaction message complete
+            debug!("marquer_outgoing_resultat Traitement message {} complete pour toutes les millegrilles", uuid_message);
         }
     }
 
     Ok(())
+}
+
+fn verifier_message_complete<M>(middleware: &M, message: &DocOutgointProcessing) -> bool
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    debug!("verifier_message_complete Pousser message : {:?}", message);
+
+    let idmgs_completes = match &message.idmgs_unprocessed {
+        Some(i) => i.is_empty(),
+        None => true
+    };
+
+    let attachments_completes = match &message.idmgs_attachments_unprocessed {
+        Some(i) => i.is_empty(),
+        None => true
+    };
+
+    idmgs_completes && attachments_completes
 }
 
 async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
