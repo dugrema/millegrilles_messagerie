@@ -425,3 +425,10 @@ pub struct ReponseRecevoirMessages {
     pub ok: Option<bool>,
     pub usagers: HashMap<String, i32>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfirmerMessageComplete {
+    pub user_id: String,
+    pub uuid_message: String,
+}
+

@@ -665,7 +665,7 @@ pub async fn marquer_outgoing_resultat<M>(
     Ok(())
 }
 
-fn verifier_message_complete<M>(middleware: &M, message: &DocOutgointProcessing) -> bool
+pub fn verifier_message_complete<M>(middleware: &M, message: &DocOutgointProcessing) -> bool
     where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
     debug!("verifier_message_complete Pousser message : {:?}", message);

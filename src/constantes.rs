@@ -53,6 +53,7 @@ pub const EVENEMENT_MESSAGES_SUPPRIMES: &str = "messagesSupprimes";
 pub const EVENEMENT_CONTACTS_SUPPRIMES: &str = "contactsSupprimes";
 pub const EVENEMENT_FICHIERS_CONSIGNE: &str = "consigne";
 pub const EVENEMENT_CONFIRMER_ETAT_FUUIDS: &str = "confirmerEtatFuuids";
+pub const EVENEMENT_CONFIRMER_MESSAGE_COMPLETE: &str = "confirmerMessageComplete";
 
 pub const CHAMP_FUUID: &str = "fuuid";  // UUID fichier
 pub const CHAMP_FUUIDS: &str = "fuuids";

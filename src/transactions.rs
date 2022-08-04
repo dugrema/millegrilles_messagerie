@@ -27,7 +27,7 @@ use millegrilles_common_rust::verificateur::ValidationOptions;
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::message_structs::*;
-use crate::pompe_messages::{emettre_evenement_pompe, marquer_outgoing_resultat, PompeMessages};
+use crate::pompe_messages::{emettre_evenement_pompe, marquer_outgoing_resultat, PompeMessages, verifier_message_complete};
 
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
 where
@@ -734,8 +734,35 @@ async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         "$unset": unset_ops,
         "$currentDate": {CHAMP_LAST_PROCESSED: true},
     };
-    if let Err(e) = collection.update_one(filtre, ops, None).await {
-        Err(format!("transactions.transfert_complete Erreur update pour transfert complete {} : {:?}", uuid_message, e))?;
+    let options = FindOneAndUpdateOptions::builder()
+        .return_document(ReturnDocument::After)
+        .build();
+
+    let outgoing_processing: DocOutgointProcessing = match collection.find_one_and_update(filtre, ops, options).await {
+        Ok(r) => match r {
+            Some(d) => match convertir_bson_deserializable(d) {
+                Ok(d) => d,
+                Err(e) => Err(format!("transactions.transfert_complete Erreur conversion resultat pour transfert complete {} : {:?}", uuid_message, e))?
+            },
+            None => {
+                // Le doc n'existe pas, probablement un vieux message durant regeneration.
+                return Ok(None)
+            }
+        },
+        Err(e) => Err(format!("transactions.transfert_complete Erreur update pour transfert complete {} : {:?}", uuid_message, e))?
+    };
+
+    let message_complete = verifier_message_complete(middleware, &outgoing_processing);
+    if message_complete {
+        debug!("Emettre evenement message complete");
+        if let Some(user_id) = outgoing_processing.user_id {
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_CONFIRMER_MESSAGE_COMPLETE)
+                .exchanges(vec![Securite::L2Prive])
+                .partition(user_id.clone())
+                .build();
+            let message = ConfirmerMessageComplete { user_id, uuid_message: uuid_message.to_owned() };
+            middleware.emettre_evenement(routage, &message).await?;
+        }
     }
 
     Ok(None)
