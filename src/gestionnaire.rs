@@ -249,6 +249,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_LU,
         TRANSACTION_TRANSFERT_COMPLETE,
         TRANSACTION_SUPPRIMER_MESSAGES,
+        TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {

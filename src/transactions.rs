@@ -45,7 +45,8 @@ where
         TRANSACTION_LU |
         TRANSACTION_TRANSFERT_COMPLETE |
         TRANSACTION_SUPPRIMER_MESSAGES |
-        TRANSACTION_SUPPRIMER_CONTACTS => {
+        TRANSACTION_SUPPRIMER_CONTACTS |
+        TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
@@ -73,6 +74,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_TRANSFERT_COMPLETE => transfert_complete(gestionnaire, middleware, transaction).await,
         TRANSACTION_SUPPRIMER_MESSAGES => supprimer_message(gestionnaire, middleware, transaction).await,
         TRANSACTION_SUPPRIMER_CONTACTS => supprimer_contacts(gestionnaire, middleware, transaction).await,
+        TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE => confirmer_transmission_millegrille(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
@@ -117,7 +119,8 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     // Ajouter map destinataires
     let mut map_destinataires = Map::new();
     for dest in &transaction_poster.get_destinataires() {
-        map_destinataires.insert(dest.to_owned(), Value::Null);
+        // Remplacer "." par "," pour supporter acces cles MongoDB
+        map_destinataires.insert(dest.replace(".", ","), Value::Null);
     }
     let map_destinataires = match convertir_to_bson(map_destinataires) {
         Ok(m) => m,
@@ -860,6 +863,40 @@ async fn supprimer_contacts<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         CHAMP_UUID_CONTACTS: &uuid_contacts,
     });
     middleware.emettre_evenement(routage, &evenement_supprime).await?;
+
+    middleware.reponse_ok()
+}
+
+async fn confirmer_transmission_millegrille<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
+    -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    debug!("confirmer_transmission_millegrille Consommer transaction : {:?}", &transaction);
+    let transaction_mappee = match transaction.convertir::<ConfirmerTransmissionMessageMillegrille>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur conversion transaction : {:?}", e))?
+    };
+
+    let filtre = doc!{
+        "uuid_transaction": &transaction_mappee.uuid_message,
+        "user_id": &transaction_mappee.user_id,
+    };
+    let mut set_ops = doc!{};
+    for (destinataire, code) in &transaction_mappee.destinataires {
+        // Remplacer "." par "," pour supporter acces cles MongoDB
+        set_ops.insert(format!("destinataires.{}", destinataire.replace(".", ",")), code);
+    }
+    let ops = doc! {
+        "$set": set_ops,
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+    match collection.update_one(filtre, ops, None).await {
+        Ok(_d) => (),
+        Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur sauvegarde etat outgoing"))?
+    }
 
     middleware.reponse_ok()
 }
