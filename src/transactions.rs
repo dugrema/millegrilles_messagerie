@@ -202,6 +202,11 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         Err(e) => Err(format!("transactions.transaction_poster Erreur requete resolve idmg {:?}", e))?,
     }
 
+    // Declencher pompe a messages si elle n'est pas deja active
+    if let Err(e) = emettre_evenement_pompe(middleware, None).await {
+        error!("transaction_poster Erreur declencher pompe de messages : {:?}", e);
+    }
+
     middleware.reponse_ok()
 }
 
