@@ -607,18 +607,20 @@ pub async fn marquer_outgoing_resultat<M>(
         None => return Ok(())  // Rien a faire
     };
 
-    if let Some(user_id) = &doc_mappe.user_id {
-        // Emettre une transaction avec les codes pour chaque usager
-        let confirmation = ConfirmerTransmissionMessageMillegrille {
-            uuid_message: uuid_message.to_owned(),
-            user_id: user_id.clone(),
-            idmg: idmg.to_owned(),
-            destinataires: map_destinataires_code.clone(),
-        };
-        let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE)
-            .exchanges(vec![Securite::L4Secure])
-            .build();
-        middleware.soumettre_transaction(routage, &confirmation, false).await?;
+    if processed {
+        if let Some(user_id) = &doc_mappe.user_id {
+            // Emettre une transaction avec les codes pour chaque usager
+            let confirmation = ConfirmerTransmissionMessageMillegrille {
+                uuid_message: uuid_message.to_owned(),
+                user_id: user_id.clone(),
+                idmg: idmg.to_owned(),
+                destinataires: map_destinataires_code.clone(),
+            };
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE)
+                .exchanges(vec![Securite::L4Secure])
+                .build();
+            middleware.soumettre_transaction(routage, &confirmation, false).await?;
+        }
     }
 
     let millegrille_completee = match &doc_mappe.attachments {
