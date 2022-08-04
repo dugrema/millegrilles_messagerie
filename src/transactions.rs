@@ -114,6 +114,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     doc_outgoing.insert("uuid_transaction", &uuid_message);
     doc_outgoing.insert("user_id", &user_id);
     doc_outgoing.insert("supprime", false);
+    doc_outgoing.insert("transfert_complete", false);
     doc_outgoing.insert(CHAMP_DATE_ENVOI, DateEpochSeconds::from(estampille.to_owned()));
 
     // Ajouter map destinataires
@@ -757,7 +758,22 @@ async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
 
     let message_complete = verifier_message_complete(middleware, &outgoing_processing);
     if message_complete {
-        debug!("Emettre evenement message complete");
+        debug!("transfert_complete Conserve flag message complete dans outgoing");
+        let filtre = doc!{
+            "uuid_transaction": uuid_message,
+            "user_id": outgoing_processing.user_id.as_ref(),
+        };
+        let ops = doc!{
+            "$set": {"transfert_complete": true},
+            "$currentDate": {CHAMP_MODIFICATION: true}
+        };
+        let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+        match collection.update_one(filtre, ops, None).await {
+            Ok(_r) => (),
+            Err(e) => error!("transactions.transfert_complete Erreur update message outgoing : {:?}", e)
+        };
+
+        debug!("transfert_complete Emettre evenement message complete");
         if let Some(user_id) = outgoing_processing.user_id {
             let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_CONFIRMER_MESSAGE_COMPLETE)
                 .exchanges(vec![Securite::L2Prive])
