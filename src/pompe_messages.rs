@@ -413,7 +413,7 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
             None => Err(format!("pousser_message_local Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
         }
     } else {
-        Err(format!("pousser_message_local Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
+        Err(format!("pompe_messages.pousser_message_local Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
     }?;
 
     // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
@@ -431,7 +431,15 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
         .exchanges(vec![Securite::L2Prive])
         .build();
 
-    let reponse = middleware.transmettre_commande(routage, &commande, true).await?;
+    let reponse: ReponseRecevoirMessages = match middleware.transmettre_commande(routage, &commande, true).await? {
+        Some(r) => match r {
+            TypeMessage::Valide(m) => {
+                m.message.parsed.map_contenu(None)?
+            },
+            _ => Err(format!("pompe_messages.pousser_message_local Erreur traitement recevoir message {} pour idmg local {} - mauvais type reponse traitemnet de transaction", uuid_transaction, idmg_local))?
+        },
+        None => Err(format!("pompe_messages.pousser_message_local Erreur traitement recevoir message {} pour idmg local {} - aucune reponse de traitement de transaction", uuid_transaction, idmg_local))?
+    };
     debug!("pousser_message_local Reponse commande message local : {:?}", reponse);
 
     Ok(())
@@ -513,52 +521,81 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(M
     Ok((val_message, message_mappe))
 }
 
-pub async fn marquer_outgoing_resultat<M>(middleware: &M, uuid_message: &str, idmg: &str, destinataires: &Vec<String>, processed: bool, result_code: u32)
-                                          -> Result<(), String>
+pub async fn marquer_outgoing_resultat<M>(
+    middleware: &M, uuid_message: &str, idmg: &str, destinataires: Option<&Vec<ConfirmerDestinataire>>, processed: bool
+) -> Result<(), String>
     where M: ValidateurX509 + MongoDao + GenerateurMessages
 {
-    debug!("Marquer idmg {} comme pousse pour message {}", idmg, uuid_message);
+    debug!("marquer_outgoing_resultat Marquer idmg {} comme pousse pour message {}", idmg, uuid_message);
+
+    // Mapper destinataires par code
+    let map_codes_destinataires = {
+        let mut map_codes_destinataires: HashMap<i32, Vec<&String>> = HashMap::new();
+        if let Some(d) = destinataires {
+            for destinataire in d {
+                let code = destinataire.code;
+                let destinataire_adresse = &destinataire.destinataire;
+                match map_codes_destinataires.get_mut(&code) {
+                    Some(mut v) => v.push(destinataire_adresse),
+                    None => {
+                        let mut v = Vec::new();
+                        v.push(destinataire_adresse);
+                        map_codes_destinataires.insert(code, v);
+                    }
+                }
+            }
+        }
+        map_codes_destinataires
+    };
 
     // Marquer process comme succes pour reception sur chaque usager
     let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     let filtre_outgoing = doc! { CHAMP_UUID_MESSAGE: uuid_message };
 
-    let array_filters = vec! [
-        doc! {"dest.destinataire": {"$in": destinataires }}
-    ];
-    let options = FindOneAndUpdateOptions::builder()
-        .array_filters(array_filters.clone())
-        .build();
+    let doc_outgoing = {
+        let mut doc_outgoing = None;
+        for (result_code, destinataires) in map_codes_destinataires.into_iter() {
+            let array_filters = vec![
+                doc! {"dest.destinataire": {"$in": destinataires }}
+            ];
+            let options = FindOneAndUpdateOptions::builder()
+                .array_filters(array_filters.clone())
+                .build();
 
-    let mut set_ops = doc!{
-        format!("idmgs_mapping.{}.last_result_code", &idmg): result_code,
-        "destinataires.$[dest].processed": processed,
-        "destinataires.$[dest].result": result_code,
+            let mut set_ops = doc! {
+                format!("idmgs_mapping.{}.last_result_code", &idmg): result_code,
+                "destinataires.$[dest].processed": processed,
+                "destinataires.$[dest].result": result_code,
+            };
+
+            if !processed {
+                let next_push = (Utc::now() + Duration::minutes(5)).timestamp();
+                set_ops.insert(format!("idmgs_mapping.{}.next_push_time", idmg), next_push);
+            }
+
+            let mut ops = doc! {
+                "$set": set_ops,
+                "$currentDate": {"last_processed": true}
+            };
+
+            if processed {
+                ops.insert("$pull", doc! {"idmgs_unprocessed": &idmg});
+                ops.insert("$unset", doc! { format!("idmgs_mapping.{}.next_push_time", idmg): true });
+            }
+
+            debug!("marquer_outgoing_resultat Filtre maj outgoing : {:?}, ops: {:?}, array_filters : {:?}", filtre_outgoing, ops, array_filters);
+            doc_outgoing = match collection_outgoing_processing.find_one_and_update(filtre_outgoing.clone(), ops, Some(options)).await {
+                Ok(resultat) => {
+                    debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg, uuid_message, resultat);
+                    Ok(resultat)
+                },
+                Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur sauvegarde transaction, conversion : {:?}", e))
+            }?;
+
+        }
+
+        doc_outgoing
     };
-
-    if ! processed {
-        let next_push = (Utc::now() + Duration::minutes(5)).timestamp();
-        set_ops.insert(format!("idmgs_mapping.{}.next_push_time", idmg), next_push);
-    }
-
-    let mut ops = doc! {
-        "$set": set_ops,
-        "$currentDate": {"last_processed": true}
-    };
-
-    if processed {
-        ops.insert("$pull", doc!{"idmgs_unprocessed": &idmg});
-        ops.insert("$unset", doc!{ format!("idmgs_mapping.{}.next_push_time", idmg): true });
-    }
-
-    debug!("marquer_outgoing_resultat Filtre maj outgoing : {:?}, ops: {:?}, array_filters : {:?}", filtre_outgoing, ops, array_filters);
-    let doc_outgoing = match collection_outgoing_processing.find_one_and_update(filtre_outgoing.clone(), ops, Some(options)).await {
-        Ok(resultat) => {
-            debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg, uuid_message, resultat);
-            Ok(resultat)
-        },
-        Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur sauvegarde transaction, conversion : {:?}", e))
-    }?;
 
     let idmg_local = middleware.idmg();
 

@@ -309,16 +309,15 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     let message_local = idmg_local.as_str() == idmg_message;
     match message_local {
         true => {
-            // Marquer le message comme traiter dans "outgoing local"
-            let destinataires = message_recevoir.destinataires.clone();
-            marquer_outgoing_resultat(
-                middleware,
-                uuid_message.as_str(),
-                idmg_local.as_str(),
-                &destinataires,
-                true,
-                201
-            ).await?;
+            // // Marquer le message comme traiter dans "outgoing local"
+            // let destinataires = message_recevoir.destinataires.clone();
+            // marquer_outgoing_resultat(
+            //     middleware,
+            //     uuid_message.as_str(),
+            //     idmg_local.as_str(),
+            //     &destinataires,
+            //     true
+            // ).await?;
 
             let options_validation = ValidationOptions::new(false, true, true);
             let resultat_validation = match message_recevoir_serialise.valider(middleware, Some(&options_validation)).await {
@@ -479,6 +478,20 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
             },
             None => warn!("transaction_recevoir Nom usager local inconnu : {}", nom_usager)
         }
+    }
+
+    if message_local {
+        // Marquer le message comme traiter dans "outgoing local"
+        let destinataires: Vec<ConfirmerDestinataire> = destinataires_resultat.iter().map(|(adresse, code)|{
+            ConfirmerDestinataire {code: code.to_owned(), destinataire: adresse.to_owned()}
+        }).collect();
+        marquer_outgoing_resultat(
+            middleware,
+            uuid_message.as_str(),
+            idmg_local.as_str(),
+            Some(&destinataires),
+            true
+        ).await?;
     }
 
     if ! attachments_recus {

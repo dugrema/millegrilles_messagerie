@@ -420,3 +420,8 @@ pub struct ConfirmationEtatFuuid {
     pub supprime: bool,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseRecevoirMessages {
+    pub ok: Option<bool>,
+    pub usagers: HashMap<String, i32>,
+}

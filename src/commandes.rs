@@ -331,22 +331,23 @@ async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideActi
     let uuid_message = commande.uuid_message.as_str();
     let idmg = commande.idmg.as_str();
 
-    let destinataires = match commande.destinataires.as_ref() {
-        Some(d) => {
-            d.iter().map(|d| d.destinataire.clone()).collect()
-        },
-        None => Vec::new()
-    };
+    // let destinataires = match commande.destinataires.as_ref() {
+    //     Some(d) => {
+    //         d.iter().map(|d| d.destinataire.clone()).collect()
+    //     },
+    //     None => Vec::new()
+    // };
 
     let result_code = commande.code as u32;
     let processed = match &commande.code {
         200 => true,
         201 => true,
         202 => true,
+        404 => true,
         _ => false
     };
 
-    marquer_outgoing_resultat(middleware, uuid_message, idmg, &destinataires, processed, result_code).await?;
+    marquer_outgoing_resultat(middleware, uuid_message, idmg, commande.destinataires.as_ref(), processed).await?;
 
     Ok(None)
 }
