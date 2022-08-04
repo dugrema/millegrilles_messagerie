@@ -437,6 +437,6 @@ pub struct ConfirmerTransmissionMessageMillegrille {
     pub uuid_message: String,
     pub user_id: String,
     pub idmg: String,
-    pub destinataires: HashMap<String, i32>,
+    pub destinataires: Vec<ConfirmerDestinataire>,
 }
 

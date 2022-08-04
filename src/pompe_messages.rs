@@ -530,13 +530,13 @@ pub async fn marquer_outgoing_resultat<M>(
 
     // Mapper destinataires par code
     let (map_codes_destinataires, map_destinataires_code) = {
-        let mut map_destinataires_code: HashMap<String, i32> = HashMap::new();
+        let mut map_destinataires_code = Vec::new();
         let mut map_codes_destinataires: HashMap<i32, Vec<&String>> = HashMap::new();
         if let Some(d) = destinataires {
             for destinataire in d {
                 let code = destinataire.code;
                 let destinataire_adresse = &destinataire.destinataire;
-                map_destinataires_code.insert(destinataire_adresse.to_owned(), code);
+                map_destinataires_code.push(ConfirmerDestinataire {code, destinataire: destinataire_adresse.to_owned()});
                 match map_codes_destinataires.get_mut(&code) {
                     Some(mut v) => v.push(destinataire_adresse),
                     None => {

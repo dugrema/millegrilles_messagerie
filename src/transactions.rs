@@ -905,9 +905,10 @@ async fn confirmer_transmission_millegrille<M, T>(gestionnaire: &GestionnaireMes
         "user_id": &transaction_mappee.user_id,
     };
     let mut set_ops = doc!{};
-    for (destinataire, code) in &transaction_mappee.destinataires {
+    for info_destinataire in &transaction_mappee.destinataires {
         // Remplacer "." par "," pour supporter acces cles MongoDB
-        set_ops.insert(format!("destinataires.{}", destinataire.replace(".", ",")), code);
+        let destinataire = info_destinataire.destinataire.replace(".", ",");
+        set_ops.insert(format!("destinataires.{}", destinataire), &info_destinataire.code);
     }
     let ops = doc! {
         "$set": set_ops,
