@@ -115,7 +115,7 @@ async fn build(gestionnaire: &'static TypeGestionnaire) -> (FuturesUnordered<Joi
     //     future_recevoir_messages
     // ) = preparer_middleware_db(queues, listeners);
 
-    let middleware_hooks = preparer_middleware_db(queues, listeners);
+    let middleware_hooks = preparer_middleware_db();
     let middleware = middleware_hooks.middleware;
 
     // Preparer les green threads de tous les domaines/processus
@@ -125,33 +125,27 @@ async fn build(gestionnaire: &'static TypeGestionnaire) -> (FuturesUnordered<Joi
 
         // ** Domaines **
         {
-            //for g in gestionnaires.clone() {
-                let (
-                    routing_g,
-                    futures_g,
-                ) = match gestionnaire {
-                    TypeGestionnaire::PartitionConsignation(g) => {
-                        g.preparer_threads(middleware.clone()).await.expect("gestionnaire")
-                    },
-                    TypeGestionnaire::None => (HashMap::new(), FuturesUnordered::new()),
-                };
-                futures.extend(futures_g);        // Deplacer vers futures globaux
-                map_senders.extend(routing_g);    // Deplacer vers mapping global
-            //}
+            let futures_g = match gestionnaire {
+                TypeGestionnaire::PartitionConsignation(g) => {
+                    g.preparer_threads(middleware.clone()).await.expect("gestionnaire")
+                },
+                TypeGestionnaire::None => FuturesUnordered::new(),
+            };
+            futures.extend(futures_g);        // Deplacer vers futures globaux
         }
 
         // ** Wiring global **
 
-        // Creer consommateurs MQ globaux pour rediriger messages recus vers Q internes appropriees
-        futures.push(spawn(
-            consommer(middleware.clone(), middleware_hooks.rx_messages_verifies, map_senders.clone())
-        ));
-        futures.push(spawn(
-            consommer(middleware.clone(), middleware_hooks.rx_messages_verif_reply, map_senders.clone())
-        ));
-        futures.push(spawn(
-            consommer(middleware.clone(), middleware_hooks.rx_triggers, map_senders.clone())
-        ));
+        // // Creer consommateurs MQ globaux pour rediriger messages recus vers Q internes appropriees
+        // futures.push(spawn(
+        //     consommer(middleware.clone(), middleware_hooks.rx_messages_verifies, map_senders.clone())
+        // ));
+        // futures.push(spawn(
+        //     consommer(middleware.clone(), middleware_hooks.rx_messages_verif_reply, map_senders.clone())
+        // ));
+        // futures.push(spawn(
+        //     consommer(middleware.clone(), middleware_hooks.rx_triggers, map_senders.clone())
+        // ));
 
         // ** Thread d'entretien **
         futures.push(spawn(entretien(middleware.clone(), rx_entretien, vec![gestionnaire])));
@@ -183,7 +177,9 @@ async fn entretien<M>(middleware: Arc<M>, mut rx: Receiver<EventMq>, gestionnair
         for g in &gestionnaires {
             match g {
                 TypeGestionnaire::PartitionConsignation(g) => {
-                    coll_docs_strings.push(String::from(g.get_collection_transactions()));
+                    if let Some(nom_collection) = g.get_collection_transactions() {
+                        coll_docs_strings.push(nom_collection);
+                    }
                 },
                 TypeGestionnaire::None => ()
             }
@@ -221,13 +217,21 @@ async fn entretien<M>(middleware: Arc<M>, mut rx: Receiver<EventMq>, gestionnair
         debug!("domaines_messagerie.entretien  Execution task d'entretien Core {:?}", maintenant);
 
         if prochain_chargement_certificats_maitredescles < maintenant {
-            match middleware.charger_certificats_chiffrage(middleware.get_enveloppe_privee().enveloppe.as_ref()).await {
+            let enveloppe_privee = middleware.get_enveloppe_privee().clone();
+            let enveloppe_certificat = enveloppe_privee.enveloppe.clone();
+            match middleware.charger_certificats_chiffrage(middleware.as_ref()).await {
                 Ok(()) => {
                     prochain_chargement_certificats_maitredescles = maintenant + intervalle_chargement_certificats_maitredescles;
-                    debug!("Prochain chargement cert maitredescles: {:?}", prochain_chargement_certificats_maitredescles);
                 },
-                Err(e) => warn!("Erreur chargement certificats de maitre des cles : {:?}", e)
+                Err(e) => info!("Erreur chargement certificats de maitre des cles tiers : {:?}", e)
             }
+            // match middleware.charger_certificats_chiffrage(middleware.get_enveloppe_privee().enveloppe.as_ref()).await {
+            //     Ok(()) => {
+            //         prochain_chargement_certificats_maitredescles = maintenant + intervalle_chargement_certificats_maitredescles;
+            //         debug!("Prochain chargement cert maitredescles: {:?}", prochain_chargement_certificats_maitredescles);
+            //     },
+            //     Err(e) => warn!("Erreur chargement certificats de maitre des cles : {:?}", e)
+            // }
         }
 
         // Sleep jusqu'au prochain entretien ou evenement MQ (e.g. connexion)

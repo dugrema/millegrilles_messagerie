@@ -402,7 +402,7 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     let uuid_transaction = message.uuid_transaction.as_str();
 
     // Mapping idmg local
-    let idmg_local = middleware.get_enveloppe_privee().idmg()?;
+    let idmg_local = middleware.get_enveloppe_signature().idmg()?;
 
     // Incrementer compteur, mettre next push a 15 minutes (en cas d'echec)
     incrementer_push(middleware, idmg_local.as_str(), uuid_transaction).await?;
@@ -735,7 +735,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
         None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante pour message {}", uuid_message))
     }?;
     let cle_message_str = cle_message_info.cle.as_str();
-    let enveloppe_privee = middleware.get_enveloppe_privee();
+    let enveloppe_privee = middleware.get_enveloppe_signature();
     let cle_privee = enveloppe_privee.cle_privee();
 
     let ts_courant = Utc::now();

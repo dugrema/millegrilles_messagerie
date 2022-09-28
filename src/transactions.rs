@@ -13,7 +13,7 @@ use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::{L2Prive, L4Secure};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
-use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_transaction_recue};
+use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_traiter_transaction};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao, verifier_erreur_duplication_mongo};
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, ReturnDocument, UpdateOptions};
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
@@ -29,7 +29,8 @@ use crate::gestionnaire::GestionnaireMessagerie;
 use crate::message_structs::*;
 use crate::pompe_messages::{emettre_evenement_pompe, marquer_outgoing_resultat, PompeMessages, verifier_message_complete};
 
-pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
 where
     M: ValidateurX509 + GenerateurMessages + MongoDao,
 {
@@ -55,9 +56,7 @@ where
         _ => Err(format!("transactions.consommer_transaction: Mauvais type d'action pour une transaction : {}", m.action))?,
     }
 
-    sauvegarder_transaction_recue(middleware, m, NOM_COLLECTION_TRANSACTIONS).await?;
-
-    Ok(None)
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
 pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
@@ -310,7 +309,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         Ok(m) => Ok(m),
         Err(e) => Err(format!("transactions.transaction_recevoir Erreur durant conversion message vers TransactionPoster : {:?}", e))
     }?;
-    let idmg_local = middleware.get_enveloppe_privee().idmg()?;
+    let idmg_local = middleware.get_enveloppe_signature().idmg()?;
     let idmg_message = message_recevoir_serialise.get_entete().idmg.as_str();
     let uuid_message = message_recevoir_serialise.get_entete().uuid_transaction.clone();
     let certificat_millegrille_pem = message_recevoir_serialise.parsed.millegrille.clone();

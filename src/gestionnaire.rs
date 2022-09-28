@@ -8,7 +8,6 @@ use millegrilles_common_rust::{serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
-use millegrilles_common_rust::chiffrage::CommandeSauvegarderCle;
 use millegrilles_common_rust::{chrono, chrono::{DateTime, Utc}};
 use millegrilles_common_rust::chrono::Timelike;
 use millegrilles_common_rust::constantes::*;
@@ -17,7 +16,7 @@ use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMil
 use millegrilles_common_rust::futures::stream::FuturesUnordered;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::messages_generiques::MessageCedule;
-use millegrilles_common_rust::middleware::{Middleware, sauvegarder_traiter_transaction, sauvegarder_transaction_recue};
+use millegrilles_common_rust::middleware::{Middleware, sauvegarder_traiter_transaction};
 use millegrilles_common_rust::mongo_dao::{ChampIndex, convertir_bson_deserializable, convertir_to_bson, filtrer_doc_id, IndexOptions, MongoDao};
 use millegrilles_common_rust::mongodb::Cursor;
 use millegrilles_common_rust::mongodb::options::{CountOptions, FindOptions, Hint, UpdateOptions};
@@ -80,7 +79,7 @@ impl TraiterTransaction for GestionnaireMessagerie {
 impl GestionnaireDomaine for GestionnaireMessagerie {
     fn get_nom_domaine(&self) -> String { String::from(DOMAINE_NOM) }
 
-    fn get_collection_transactions(&self) -> String { String::from(NOM_COLLECTION_TRANSACTIONS) }
+    fn get_collection_transactions(&self) -> Option<String> { Some(String::from(NOM_COLLECTION_TRANSACTIONS)) }
 
     fn get_collections_documents(&self) -> Vec<String> { vec![
         String::from(NOM_COLLECTION_INCOMING),
@@ -92,11 +91,11 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
         String::from(NOM_COLLECTION_CONTACTS),
     ] }
 
-    fn get_q_transactions(&self) -> String { String::from(NOM_Q_TRANSACTIONS) }
+    fn get_q_transactions(&self) -> Option<String> { Some(String::from(NOM_Q_TRANSACTIONS)) }
 
-    fn get_q_volatils(&self) -> String { String::from(NOM_Q_VOLATILS) }
+    fn get_q_volatils(&self) -> Option<String> { Some(String::from(NOM_Q_VOLATILS)) }
 
-    fn get_q_triggers(&self) -> String { String::from(NOM_Q_TRIGGERS) }
+    fn get_q_triggers(&self) -> Option<String> { Some(String::from(NOM_Q_TRIGGERS)) }
 
     fn preparer_queues(&self) -> Vec<QueueType> { preparer_queues() }
 
@@ -117,14 +116,14 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
     }
 
     async fn consommer_transaction<M>(&self, middleware: &M, message: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>> where M: Middleware + 'static {
-        consommer_transaction(middleware, message).await
+        consommer_transaction(middleware, message, self).await
     }
 
     async fn consommer_evenement<M>(self: &'static Self, middleware: &M, message: MessageValideAction) -> Result<Option<MessageMilleGrille>, Box<dyn Error>> where M: Middleware + 'static {
         consommer_evenement(self, middleware, message).await
     }
 
-    async fn entretien<M>(&self, middleware: Arc<M>) where M: Middleware + 'static {
+    async fn entretien<M>(self: &'static Self, middleware: Arc<M>) where M: Middleware + 'static {
         entretien(self, middleware).await
     }
 
@@ -143,14 +142,11 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
     }
 
     async fn preparer_threads<M>(self: &'static Self, middleware: Arc<M>)
-        -> Result<(HashMap<String, Sender<TypeMessage>>, FuturesUnordered<JoinHandle<()>>), Box<dyn Error>>
+        -> Result<FuturesUnordered<JoinHandle<()>>, Box<dyn Error>>
         where M: Middleware + 'static
     {
         // Super
-        let (
-            senders,
-            mut futures
-        ) = self.preparer_threads_super(middleware.clone()).await?;
+        let mut futures = self.preparer_threads_super(middleware.clone()).await?;
 
         // Ajouter pompe dans futures
         let pompe = PompeMessages::new();
@@ -161,7 +157,7 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
         }
         futures.push(spawn(pompe.run(middleware.clone())));
 
-        Ok((senders, futures))
+        Ok(futures)
     }
 
 }
@@ -237,6 +233,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
             routing_keys: rk_volatils,
             ttl: DEFAULT_Q_TTL.into(),
             durable: true,
+            autodelete: false,
         }
     ));
 
@@ -265,6 +262,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
             routing_keys: rk_transactions,
             ttl: None,
             durable: true,
+            autodelete: false,
         }
     ));
 
