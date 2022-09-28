@@ -84,9 +84,9 @@ pub struct PompeMessages {
 }
 
 impl PompeMessages {
-    pub fn new() -> PompeMessages {
+    pub fn new() -> Self {
         let (tx, rx) = mpsc::channel(1);
-        return PompeMessages { rx, tx };
+        return Self { rx, tx };
     }
 
     pub fn get_tx_pompe(&self) -> Sender<MessagePompe> {
@@ -101,7 +101,7 @@ impl PompeMessages {
 
         while let Some(message) = self.rx.recv().await {
             debug!("pompe_messages.run Trigger recu : {:?}", message);
-            match self.cycle_pompe_messages(middleware.as_ref(), &message).await {
+            match self.cycle_pompe_messages(middleware.as_ref(), message).await {
                 Ok(_) => (),
                 Err(e) => error!("pompe_messages.run Erreur runtime : {:?}", e)
             }
@@ -110,15 +110,15 @@ impl PompeMessages {
         debug!("pompe_messages.PompeMessages Fin thread pompe");
     }
 
-    async fn cycle_pompe_messages<M>(&mut self, middleware: &M, trigger: &MessagePompe)
+    async fn cycle_pompe_messages<M>(&mut self, middleware: &M, trigger: MessagePompe)
         -> Result<(), Box<dyn Error>>
         where M: ValidateurX509 + GenerateurMessages + MongoDao
     {
-        traiter_dns_unresolved(middleware, trigger).await;
-        traiter_messages_locaux(middleware, trigger).await;
-        traiter_attachments_tiers(middleware, trigger).await;
-        traiter_messages_tiers(middleware, trigger).await;
-        expirer_messages(middleware, trigger).await;
+        traiter_dns_unresolved(middleware, &trigger).await;
+        traiter_messages_locaux(middleware, &trigger).await;
+        traiter_attachments_tiers(middleware, &trigger).await;
+        traiter_messages_tiers(middleware, &trigger).await;
+        expirer_messages(middleware, &trigger).await;
         Ok(())
     }
 }
