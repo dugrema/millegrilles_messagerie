@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use log::debug;
-use millegrilles_common_rust::chiffrage_cle::MetaInformationCle;
+use millegrilles_common_rust::chiffrage_cle::{MetaInformationCle, ReponseDechiffrageCles};
 
 use millegrilles_common_rust::chrono;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
@@ -234,8 +234,9 @@ pub struct TransactionInitialiserProfil {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProfilReponse {
-    pub adresse: String,
+    pub adresses: Vec<String>,
     pub cle_ref_hachage_bytes: String,
+    pub cles: Option<ReponseDechiffrageCles>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

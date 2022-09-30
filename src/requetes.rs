@@ -8,6 +8,7 @@ use millegrilles_common_rust::{serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{Bson, doc, Document};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
+use millegrilles_common_rust::chiffrage_cle::ReponseDechiffrageCles;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
@@ -16,7 +17,7 @@ use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, filtrer_doc_id, MongoDao};
 use millegrilles_common_rust::mongodb::Cursor;
 use millegrilles_common_rust::mongodb::options::{FindOneOptions, FindOptions, Hint, UpdateOptions};
-use millegrilles_common_rust::recepteur_messages::MessageValideAction;
+use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::tokio_stream::StreamExt;
@@ -346,11 +347,39 @@ async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
     let requete: ParametresGetProfil = m.message.get_msg().map_contenu(None)?;
     debug!("requete_get_profil cle parsed : {:?}", requete);
 
+    let pem_cert = match m.message.certificat {
+        Some(c) => {
+            Some(c.get_pem_vec().iter().map(|c|c.pem.clone()).collect::<Vec<String>>())
+        },
+        None => None
+    };
+
     let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
     let filtre = doc! {CHAMP_USER_ID: user_id};
     let reponse = match collection.find_one(filtre, None).await? {
         Some(mut d) => {
-            let profil_reponse: ProfilReponse = convertir_bson_deserializable(d)?;
+            let mut profil_reponse: ProfilReponse = convertir_bson_deserializable(d)?;
+
+            // Charger la cle du profil
+            if let Some(pem) = pem_cert {
+                let routage = RoutageMessageAction::builder(
+                    DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE)
+                    .exchanges(vec![Securite::L4Secure])
+                    .build();
+                let requete_cle = json!({
+                    "liste_hachage_bytes": [profil_reponse.cle_ref_hachage_bytes.as_str()],
+                    "certificat_rechiffrage": pem,
+                });
+                debug!("requete_get_profil Requete cle : {:?}", requete_cle);
+                if let TypeMessage::Valide(reponse_cle) = middleware.transmettre_requete(routage, &requete_cle).await? {
+                    debug!("requete_get_profil Reponse cle : {:?}", reponse_cle);
+                    let cles: ReponseDechiffrageCles = reponse_cle.message.get_msg().map_contenu(None)?;
+                    profil_reponse.cles = Some(cles);
+                } else {
+                    warn!("requete_get_profil Reponse cle mauvais type (!Valide)");
+                }
+            }
+
             middleware.formatter_reponse(profil_reponse, None)
         },
         None => {

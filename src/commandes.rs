@@ -270,9 +270,11 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
     };
     let transaction = middleware.formatter_message(
         &transaction, Some(DOMAINE_NOM), Some(m.action.as_str()), None, None, false)?;
-    let transaction = MessageValideAction::from_message_millegrille(
+    let mut transaction = MessageValideAction::from_message_millegrille(
         transaction, TypeMessageOut::Transaction)?;
 
+    // Conserver enveloppe pour validation
+    transaction.message.set_certificat(middleware.get_enveloppe_signature().enveloppe.clone());
 
     // Traiter la transaction
     Ok(sauvegarder_traiter_transaction(middleware, transaction, gestionnaire).await?)
