@@ -221,8 +221,21 @@ pub struct MessageOutgoingProjectionPermission {
 pub struct ParametresGetProfil {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransactionInitialiserProfil {
+pub struct CommandeInitialiserProfil {
     pub adresse: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionInitialiserProfil {
+    pub user_id: String,
+    pub adresse: String,
+    pub cle_ref_hachage_bytes: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProfilReponse {
+    pub adresse: String,
+    pub cle_ref_hachage_bytes: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

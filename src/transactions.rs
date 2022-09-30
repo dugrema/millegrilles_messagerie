@@ -532,16 +532,13 @@ async fn transaction_initialiser_profil<M, T>(gestionnaire: &GestionnaireMessage
         Ok(t) => t,
         Err(e) => Err(format!("transactions.transaction_initialiser_profil Erreur conversion transaction : {:?}", e))?
     };
-    let adresse = transaction_initialiser_profil.adresse;
+    let adresse = transaction_initialiser_profil.adresse.as_str();
 
     let certificat = match transaction.get_enveloppe_certificat() {
         Some(c) => c,
         None => Err(format!("transactions.transaction_initialiser_profil Certificat invalide/non charge"))?
     };
-    let user_id = match certificat.get_user_id()? {
-        Some(u) => u,
-        None => Err(format!("transactions.transaction_initialiser_profil user_id manquant du certificat"))?
-    };
+    let user_id = transaction_initialiser_profil.user_id.as_str();
 
     let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
     let filtre = doc! {CHAMP_USER_ID: user_id};
@@ -550,7 +547,10 @@ async fn transaction_initialiser_profil<M, T>(gestionnaire: &GestionnaireMessage
         .return_document(ReturnDocument::After)
         .build();
     let ops = doc! {
-        "$set": {"adresses": [adresse]},
+        "$set": {
+            "adresses": [adresse],
+            "cle_ref_hachage_bytes": &transaction_initialiser_profil.cle_ref_hachage_bytes,
+        },
         "$currentDate": {CHAMP_CREATION: true, CHAMP_MODIFICATION: true},
     };
 

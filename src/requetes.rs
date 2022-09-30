@@ -350,10 +350,8 @@ async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
     let filtre = doc! {CHAMP_USER_ID: user_id};
     let reponse = match collection.find_one(filtre, None).await? {
         Some(mut d) => {
-            d.remove("_id");
-            d.remove(CHAMP_CREATION);
-            d.remove(CHAMP_MODIFICATION);
-            middleware.formatter_reponse(d, None)
+            let profil_reponse: ProfilReponse = convertir_bson_deserializable(d)?;
+            middleware.formatter_reponse(profil_reponse, None)
         },
         None => {
             let reponse_profil_introuvable = json!({"ok": false, "code": 404});

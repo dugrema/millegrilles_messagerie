@@ -7,15 +7,17 @@ use millegrilles_common_rust::{serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
+use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::L2Prive;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
-use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
+use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
 use millegrilles_common_rust::mongodb::Collection;
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
+use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::tokio_stream::StreamExt;
@@ -30,7 +32,7 @@ use crate::pompe_messages::{marquer_outgoing_resultat, verifier_fin_transferts_a
 
 pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + VerificateurMessage + ValidateurX509
+    where M: GenerateurMessages + MongoDao + VerificateurMessage + ValidateurX509 + ChiffrageFactoryTrait
 {
     debug!("consommer_commande : {:?}", &m.message);
 
@@ -211,10 +213,10 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
 
 async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait
 {
     debug!("commandes.commande_initialiser_profil Consommer commande : {:?}", & m.message);
-    let commande: TransactionInitialiserProfil = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeInitialiserProfil = m.message.get_msg().map_contenu(None)?;
     debug!("commandes.commande_initialiser_profil Commande nouvelle versions parsed : {:?}", commande);
 
     {
@@ -239,14 +241,41 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
     }
 
     let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
-    let filtre = doc! {CHAMP_USER_ID: user_id};
+    let filtre = doc! {CHAMP_USER_ID: &user_id};
     let doc_profil = collection.find_one(filtre, None).await?;
     if doc_profil.is_some() {
         return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "profil existe deja", "code": 400}), None)?))
     }
 
+    // Generer une nouvelle cle pour le profil de l'usager (chiffrer parametres, contacts, etc)
+    let cle_profil = {
+        let mut chiffreur = middleware.get_chiffrage_factory().get_chiffreur()?;
+        let (_, keys) = chiffreur.finalize(&mut [0u8; 17])?;
+        let mut identificateurs = HashMap::new();
+        identificateurs.insert("user_id".to_string(), user_id.clone());
+        identificateurs.insert("type".to_string(), "profil".to_string());
+        let cle_profil = keys.get_commande_sauvegarder_cles(DOMAINE_NOM, None, identificateurs)?;
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        middleware.transmettre_commande(routage, &cle_profil, true).await?;
+        cle_profil
+    };
+
+    // Generer nouvelle transaction
+    let transaction = TransactionInitialiserProfil {
+        user_id: user_id.clone(),
+        adresse: commande.adresse,
+        cle_ref_hachage_bytes: cle_profil.hachage_bytes
+    };
+    let transaction = middleware.formatter_message(
+        &transaction, Some(DOMAINE_NOM), Some(m.action.as_str()), None, None, false)?;
+    let transaction = MessageValideAction::from_message_millegrille(
+        transaction, TypeMessageOut::Transaction)?;
+
+
     // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    Ok(sauvegarder_traiter_transaction(middleware, transaction, gestionnaire).await?)
 }
 
 async fn commande_maj_contact<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
