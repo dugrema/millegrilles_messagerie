@@ -288,11 +288,6 @@ async fn commande_maj_contact<M>(middleware: &M, m: MessageValideAction, gestion
     let commande: Contact = m.message.get_msg().map_contenu(None)?;
     debug!("commandes.commande_maj_contact Commande nouvelle versions parsed : {:?}", commande);
 
-    if commande.nom.len() == 0 {
-        // Rejeter
-        return Ok(Some(middleware.formatter_reponse(&json!({"ok": false, "err": "Nom vide"}), None)?));
-    }
-
     {
         let version_commande = m.message.get_entete().version;
         if version_commande != 1 {
