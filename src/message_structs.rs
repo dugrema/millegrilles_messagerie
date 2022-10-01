@@ -263,7 +263,7 @@ pub struct Contact {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReferenceContact {
-    pub nom: String,
+    // pub nom: String,
     pub uuid_contact: Option<String>,
     pub date_modification: Option<DateEpochSeconds>,
     pub supprime: Option<bool>,
