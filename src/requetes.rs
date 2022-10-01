@@ -443,7 +443,10 @@ async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
 
         while let Some(r) = curseur.next().await {
             let contact_doc = r?;
-            let contact_mappe: Contact = convertir_bson_deserializable(contact_doc)?;
+            let date_modification = contact_doc.get_datetime(CHAMP_MODIFICATION)?.clone();
+
+            let mut contact_mappe: Contact = convertir_bson_deserializable(contact_doc)?;
+            contact_mappe.date_modification = Some(DateEpochSeconds::from(date_modification.to_chrono()));
             contacts.push(contact_mappe);
         }
 

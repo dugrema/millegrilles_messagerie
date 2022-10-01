@@ -251,6 +251,7 @@ pub struct ParametresGetContacts {
 pub struct Contact {
     pub uuid_contact: Option<String>,
     pub data_chiffre: String,
+    pub date_modification: Option<DateEpochSeconds>,
     pub format: String,
     pub ref_hachage_bytes: String,
     #[serde(skip_serializing_if = "Option::is_none")]
