@@ -166,7 +166,7 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     let dns_adresses: Vec<String> = dns_adresses.into_iter().collect();
     let doc_processing = doc! {
         TRANSACTION_CHAMP_UUID_TRANSACTION: uuid_transaction,
-        CHAMP_UUID_MESSAGE: uuid_message,
+        CHAMP_UUID_MESSAGE: &uuid_message,
         "destinataires": destinataires,
         "user_id": user_id,
         "dns_unresolved": &dns_adresses,
@@ -206,7 +206,16 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         error!("transaction_poster Erreur declencher pompe de messages : {:?}", e);
     }
 
-    middleware.reponse_ok()
+    let reponse = json!({
+        "ok": true,
+        "uuid_message": uuid_message
+    });
+
+    match middleware.formatter_reponse(reponse, None) {
+        Ok(r) => Ok(Some(r)),
+        Err(e) => Err(format!("transaction_poster Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
+    }
+
 }
 
 pub async fn emettre_requete_resolve<M>(middleware: &M, uuid_transaction: &str, dns: &Vec<String>)
