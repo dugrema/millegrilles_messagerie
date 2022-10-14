@@ -270,7 +270,10 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
         "user_id": &user_id,
         "uuid_transaction": {"$in": &requete.uuid_transaction_messages},
     };
-    let projection = doc! {"uuid_transaction": true, "attachments": true, "hachage_bytes": true};
+    let mut projection = doc! {
+        "uuid_transaction": true,
+        "hachage_bytes": true,
+    };
     let opts = FindOptions::builder().projection(projection).limit(1000).build();
     let collection = middleware.get_collection(nom_collection)?;
     let mut curseur = collection.find(filtre, Some(opts)).await?;
