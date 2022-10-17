@@ -151,8 +151,8 @@ pub struct ReponseUseridParNomUsager {
 pub struct RequeteGetMessages {
     pub limit: Option<i64>,
     pub skip: Option<u64>,
-    pub uuid_messages: Option<Vec<String>>,
-    pub inclure_supprime: Option<bool>,
+    // pub uuid_messages: Option<Vec<String>>,
+    pub uuid_transactions: Option<Vec<String>>,
     pub messages_envoyes: Option<bool>,
 }
 
@@ -160,6 +160,7 @@ pub struct RequeteGetMessages {
 pub struct RequeteGetReferenceMessages {
     pub limit: Option<i64>,
     pub date_minimum: Option<DateEpochSeconds>,
+    pub supprime: Option<bool>,
     pub inclure_supprime: Option<bool>,
     pub messages_envoyes: Option<bool>,
 }
