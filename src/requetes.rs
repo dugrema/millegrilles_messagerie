@@ -147,6 +147,11 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
         None => 1000
     };
 
+    let date_max = match requete.date_maximum {
+        Some(inner) => inner,
+        None => m.message.get_entete().estampille.clone()
+    };
+
     let supprime = match requete.supprime { Some(b) => b, None => false };
     let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
 
@@ -161,16 +166,18 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
     };
 
     let opts = FindOptions::builder()
-        .sort(doc!{champ_date: 1})
+        .sort(doc!{champ_date: -1})  // Ordre descendant
+        .skip(requete.skip)
         .limit(limit)
         .build();
     let mut filtre = doc!{
         CHAMP_USER_ID: user_id,
         CHAMP_SUPPRIME: supprime,
+        champ_date: doc!{"$lte": &date_max},
     };
-    if let Some(d) = requete.date_minimum.as_ref() {
-        filtre.insert(champ_date, doc!{"$gte": d});
-    }
+    // if let Some(d) = requete.date_minimum.as_ref() {
+    //     filtre.insert(champ_date, doc!{"$gte": d});
+    // }
 
     debug!("requete_get_reference_messages Filter messages collection {} : {:?}", nom_collection, filtre);
 

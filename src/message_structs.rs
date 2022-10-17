@@ -158,8 +158,10 @@ pub struct RequeteGetMessages {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RequeteGetReferenceMessages {
+    pub skip: Option<u64>,
     pub limit: Option<i64>,
-    pub date_minimum: Option<DateEpochSeconds>,
+    pub date_maximum: Option<DateEpochSeconds>,
+    // pub date_minimum: Option<DateEpochSeconds>,
     pub supprime: Option<bool>,
     pub inclure_supprime: Option<bool>,
     pub messages_envoyes: Option<bool>,
