@@ -250,14 +250,19 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
     // Generer une nouvelle cle pour le profil de l'usager (chiffrer parametres, contacts, etc)
     let cle_profil = {
         let mut chiffreur = middleware.get_chiffrage_factory().get_chiffreur()?;
-        let (_, keys) = chiffreur.finalize(&mut [0u8; 17])?;
+        let now = Utc::now().timestamp_nanos().to_le_bytes();
+        let mut output = [0u8; 8];
+        chiffreur.update(&now, &mut output)?;
+        let (_, keys) = chiffreur.finalize(&mut [0u8; 25])?;
         let mut identificateurs = HashMap::new();
         identificateurs.insert("user_id".to_string(), user_id.clone());
         identificateurs.insert("type".to_string(), "profil".to_string());
+        debug!("commande_initialiser_profil Hachage bytes {}", keys.hachage_bytes);
         let cle_profil = keys.get_commande_sauvegarder_cles(DOMAINE_NOM, None, identificateurs)?;
         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
             .exchanges(vec![Securite::L4Secure])
             .build();
+        debug!("commande_initialiser_profil Sauvegarder cle {:?}", cle_profil);
         middleware.transmettre_commande(routage, &cle_profil, true).await?;
         cle_profil
     };
