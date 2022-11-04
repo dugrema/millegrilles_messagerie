@@ -179,6 +179,7 @@ pub struct MessageIncoming {
     pub certificat_message: Option<Vec<String>>,
     pub certificat_millegrille: Option<String>,
     pub attachments: Option<HashMap<String, bool>>,
+    pub attachments_traites: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -188,6 +189,7 @@ pub struct MessageIncomingReference {
     pub supprime: bool,
     pub date_reception: Option<DateEpochSeconds>,
     pub date_envoi: Option<DateEpochSeconds>,
+    pub attachments_traites: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
