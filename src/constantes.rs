@@ -27,6 +27,7 @@ pub const REQUETE_GET_CONTACTS: &str = "getContacts";
 pub const REQUETE_GET_REFERENCE_CONTACTS: &str = "getReferenceContacts";
 pub const REQUETE_ATTACHMENT_REQUIS: &str = "attachmentRequis";
 pub const REQUETE_GET_REFERENCE_MESSAGES: &str = "getReferenceMessages";
+pub const REQUETE_GET_MESSAGES_ATTACHMENTS: &str = "getMessagesAttachments";
 
 pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
 pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";

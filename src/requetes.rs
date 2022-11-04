@@ -60,6 +60,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_GET_CONTACTS => requete_get_contacts(middleware, message).await,
                 REQUETE_GET_REFERENCE_CONTACTS => requete_get_reference_contacts(middleware, message).await,
                 REQUETE_ATTACHMENT_REQUIS => requete_attachment_requis(middleware, message).await,
+                REQUETE_GET_MESSAGES_ATTACHMENTS => requete_get_messages_attachments(middleware, message, gestionnaire).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -124,6 +125,47 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
     let collection = middleware.get_collection(nom_collection)?;
     let mut curseur = collection.find(filtre, opts).await?;
     let fichiers_mappes = mapper_messages_curseur(curseur, messages_envoyes).await?;
+
+    let reponse = json!({ "messages": fichiers_mappes });
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+}
+
+async fn requete_get_messages_attachments<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_get_messages_attachments Message : {:?}", & m.message);
+    let requete: RequeteGetMessages = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_messages_attachments parsed : {:?}", requete);
+
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "msg": "Access denied"}), None)?))
+    };
+
+    let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
+
+    let nom_collection = NOM_COLLECTION_INCOMING;
+
+    let opts = FindOptions::builder()
+        .build();
+    let mut filtre = doc!{CHAMP_USER_ID: user_id};
+
+    if let Some(um) = requete.uuid_transactions {
+        filtre.insert("uuid_transaction", doc!{"$in": um});
+    }
+
+    debug!("requete_get_messages Filtre {:?}", filtre);
+
+    let collection = middleware.get_collection(nom_collection)?;
+    let mut curseur = collection.find(filtre, opts).await?;
+
+    let mut fichiers_mappes = Vec::new();
+    while let Some(fresult) = curseur.next().await {
+        let fcurseur = fresult?;
+        let message_db: MessageIncomingAttachments = convertir_bson_deserializable(fcurseur)?;
+        fichiers_mappes.push(message_db);
+    }
 
     let reponse = json!({ "messages": fichiers_mappes });
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))

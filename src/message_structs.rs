@@ -193,6 +193,13 @@ pub struct MessageIncomingReference {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageIncomingAttachments {
+    pub uuid_transaction: String,
+    pub attachments: Option<HashMap<String, bool>>,
+    pub attachments_traites: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageOutgoing {
     pub uuid_transaction: String,
     pub supprime: bool,
