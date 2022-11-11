@@ -29,8 +29,6 @@ use crate::constantes::*;
 use crate::transactions::*;
 use crate::message_structs::*;
 
-const REQUETE_DECHIFFRAGE: &str = "dechiffrage";
-
 pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, gestionnaire: &GestionnaireMessagerie) -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
 {
@@ -61,6 +59,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_GET_REFERENCE_CONTACTS => requete_get_reference_contacts(middleware, message).await,
                 REQUETE_ATTACHMENT_REQUIS => requete_attachment_requis(middleware, message).await,
                 REQUETE_GET_MESSAGES_ATTACHMENTS => requete_get_messages_attachments(middleware, message, gestionnaire).await,
+                REQUETE_GET_USAGER_ACCES_ATTACHMENTS => requete_usager_acces_attachments(middleware, message).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -588,6 +587,51 @@ async fn requete_attachment_requis<M>(middleware: &M, m: MessageValideAction)
         let filtre = doc! {
             CHAMP_ATTACHMENTS_TRAITES: false,
             format!("attachments.{}", fuuid): false,
+        };
+        let resultat = collection.find_one(filtre.clone(), Some(options.clone())).await?;
+        reponse_fuuid.insert(fuuid.into(), resultat.is_some());
+    }
+
+    let reponse = ReponseRequeteAttachmentRequis {
+        fuuids: reponse_fuuid,
+    };
+
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+}
+
+/// Retourne une map d'attachements accessibles a l'usager en fonction de la requete
+async fn requete_usager_acces_attachments<M>(middleware: &M, m: MessageValideAction)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_attachment_requis Message : {:?}", & m.message);
+    let requete: ParametresRequeteUsagerAccesAttachments = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_attachment_requis parsed : {:?}", requete);
+
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => {
+            if m.verifier_exchanges(vec![Securite::L2Prive, Securite::L3Protege, Securite::L4Secure]) {
+                match requete.user_id {
+                    Some(u) => u,
+                    None => {
+                        return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": true, "code": 403, "message": "Certificat sans user_id ou exchanges prive+"}), None)?))
+                    }
+                }
+            } else {
+                return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": true, "code": 403, "message": "user_id n'est pas dans le certificat"}), None)?))
+            }
+        }
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let options = FindOneOptions::builder().projection(doc!{"_id": true}).build();
+
+    let mut reponse_fuuid: HashMap<String, bool> = HashMap::new();
+    for fuuid in &requete.fuuids {
+        let filtre = doc! {
+            CHAMP_USER_ID: &user_id,
+            format!("attachments.{}", fuuid): true,
         };
         let resultat = collection.find_one(filtre.clone(), Some(options.clone())).await?;
         reponse_fuuid.insert(fuuid.into(), resultat.is_some());

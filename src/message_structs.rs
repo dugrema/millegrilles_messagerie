@@ -392,6 +392,12 @@ pub struct ReponseRequeteAttachmentRequis {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParametresRequeteUsagerAccesAttachments {
+    pub user_id: Option<String>,
+    pub fuuids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SortKey {
     pub colonne: String,
     pub ordre: Option<i32>,
