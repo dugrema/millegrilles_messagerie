@@ -189,6 +189,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_LU,
         TRANSACTION_SUPPRIMER_MESSAGES,
         TRANSACTION_SUPPRIMER_CONTACTS,
+        COMMANDE_CONSERVER_CLES_ATTACHMENTS,
     ];
     for cmd in commandes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L2Prive});

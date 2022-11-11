@@ -8,6 +8,7 @@ use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
+use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::L2Prive;
@@ -29,6 +30,8 @@ use crate::constantes::*;
 use crate::transactions::*;
 use crate::message_structs::*;
 use crate::pompe_messages::{marquer_outgoing_resultat, verifier_fin_transferts_attachments};
+
+const REQUETE_MAITREDESCLES_VERIFIER_PREUVE: &str = "verifierPreuve";
 
 pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -60,6 +63,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         COMMANDE_PROCHAIN_ATTACHMENT => commande_prochain_attachment(middleware, m, gestionnaire).await,
         COMMANDE_UPLOAD_ATTACHMENT => commande_upload_attachment(middleware, m).await,
         COMMANDE_FUUID_VERIFIER_EXISTANCE => commande_fuuid_verifier_existance(middleware, m).await,
+        COMMANDE_CONSERVER_CLES_ATTACHMENTS => commande_conserver_cles_attachments(middleware, m, gestionnaire).await,
 
         // Transactions
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
@@ -620,4 +624,117 @@ async fn commande_fuuid_verifier_existance<M>(middleware: &M, m: MessageValideAc
     }
 
     Ok(None)
+}
+
+async fn commande_conserver_cles_attachments<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commande_conserver_cles_attachments Consommer commande : {:?}", & m.message);
+    let commande: CommandeConserverClesAttachment = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_conserver_cles_attachments parsed : {:?}", commande);
+    // debug!("Commande en json (DEBUG) : \n{:?}", serde_json::to_string(&commande));
+
+    let fingerprint_client = match &m.message.certificat {
+        Some(inner) => inner.fingerprint.clone(),
+        None => Err(format!("commande_conserver_cles_attachments Envelopppe manquante"))?
+    };
+
+    let user_id = match m.get_user_id() {
+        Some(inner) => inner,
+        None => Err(format!("commande_conserver_cles_attachments Enveloppe sans user_id"))?
+    };
+
+    // Verifier aupres du maitredescles si les cles sont valides
+    let reponse_preuves = {
+        let requete_preuves = json!({"fingerprint": fingerprint_client, "preuves": &commande.preuves});
+        let routage_maitrecles = RoutageMessageAction::builder(
+            DOMAINE_NOM_MAITREDESCLES, REQUETE_MAITREDESCLES_VERIFIER_PREUVE)
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        debug!("commande_conserver_cles_attachments Requete preuve possession cles : {:?}", requete_preuves);
+        let reponse_preuve = match middleware.transmettre_requete(routage_maitrecles, &requete_preuves).await? {
+            TypeMessage::Valide(m) => {
+                match m.message.certificat.as_ref() {
+                    Some(c) => {
+                        if c.verifier_roles(vec![RolesCertificats::MaitreDesCles]) {
+                            debug!("commande_conserver_cles_attachments Reponse preuve : {:?}", m);
+                            let preuve_value: ReponsePreuvePossessionCles = m.message.get_msg().map_contenu(None)?;
+                            Ok(preuve_value)
+                        } else {
+                            Err(format!("commandes.commande_conserver_cles_attachments Erreur chargement certificat de reponse verification preuve, certificat n'est pas de role maitre des cles"))
+                        }
+                    },
+                    None => Err(format!("commandes.commande_conserver_cles_attachments Erreur chargement certificat de reponse verification preuve, certificat inconnu"))
+                }
+            },
+            m => Err(format!("commandes.commande_conserver_cles_attachments Erreur reponse message verification cles, mauvais type : {:?}", m))
+        }?;
+        debug!("commande_conserver_cles_attachments Reponse verification preuve : {:?}", reponse_preuve);
+
+        reponse_preuve.verification
+    };
+
+    let mut resultat_fichiers = HashMap::new();
+    for mut hachage_bytes in commande.cles.keys() {
+        let fuuid = hachage_bytes.as_str();
+
+        let mut etat_cle = false;
+        if Some(&true) == reponse_preuves.get(fuuid) {
+            etat_cle = true;
+        } else {
+            // Tenter de sauvegarder la cle
+            if let Some(cle) = commande.cles.get(fuuid) {
+                debug!("commande_conserver_cles_attachments Sauvegarder cle fuuid {} : {:?}", fuuid, cle);
+                let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                    .exchanges(vec![Securite::L4Secure])
+                    .timeout_blocking(5000)
+                    .build();
+                let reponse_cle = middleware.transmettre_commande(routage, &cle, true).await?;
+                debug!("commande_conserver_cles_attachments Reponse sauvegarde cle : {:?}", reponse_cle);
+                if let Some(reponse) = reponse_cle {
+                    if let TypeMessage::Valide(mva) = reponse {
+                        debug!("Reponse valide : {:?}", mva);
+                        let reponse_mappee: ReponseCle = mva.message.get_msg().map_contenu(None)?;
+                        etat_cle = true;
+                    }
+                }
+            } else {
+                debug!("commande_conserver_cles_attachments Aucune cle trouvee pour fuuid {} : {:?}", fuuid, commande.cles);
+            }
+        }
+
+        if etat_cle {
+            debug!("commande_conserver_cles_attachments Fuuid {} preuve OK", fuuid);
+            resultat_fichiers.insert(fuuid.to_string(), true);
+        } else {
+            warn!("commande_copier_fichier_tiers Fuuid {} preuve refusee ou cle inconnue", fuuid);
+            resultat_fichiers.insert(fuuid.to_string(), false);
+        }
+    }
+
+    let reponse = json!({"resultat": resultat_fichiers});
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeConserverClesAttachment {
+    pub cles: HashMap<String, CommandeSauvegarderCle>,
+    pub preuves: HashMap<String, PreuvePossessionCles>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PreuvePossessionCles {
+    pub preuve: String,
+    pub date: DateEpochSeconds,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponsePreuvePossessionCles {
+    pub verification: HashMap<String, bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseCle {
+    pub ok: Option<bool>
 }

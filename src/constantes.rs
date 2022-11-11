@@ -32,6 +32,7 @@ pub const REQUETE_GET_MESSAGES_ATTACHMENTS: &str = "getMessagesAttachments";
 pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
 pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";
 pub const COMMANDE_ACTIVITE_FUUIDS: &str = "confirmerActiviteFuuids";
+pub const COMMANDE_CONSERVER_CLES_ATTACHMENTS: &str = "conserverClesAttachments";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";
