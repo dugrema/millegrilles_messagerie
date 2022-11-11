@@ -30,6 +30,7 @@ pub const REQUETE_GET_REFERENCE_MESSAGES: &str = "getReferenceMessages";
 pub const REQUETE_GET_MESSAGES_ATTACHMENTS: &str = "getMessagesAttachments";
 pub const REQUETE_DECHIFFRAGE: &str = "dechiffrage";
 pub const REQUETE_GET_USAGER_ACCES_ATTACHMENTS: &str = "getUsagerAccesAttachments";
+pub const REQUETE_GET_CLES_STREAM: &str = "getClesStream";
 
 pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
 pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";

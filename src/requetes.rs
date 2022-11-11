@@ -60,6 +60,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_ATTACHMENT_REQUIS => requete_attachment_requis(middleware, message).await,
                 REQUETE_GET_MESSAGES_ATTACHMENTS => requete_get_messages_attachments(middleware, message, gestionnaire).await,
                 REQUETE_GET_USAGER_ACCES_ATTACHMENTS => requete_usager_acces_attachments(middleware, message).await,
+                REQUETE_GET_CLES_STREAM => requete_get_cles_stream(middleware, message, gestionnaire).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -643,3 +644,115 @@ async fn requete_usager_acces_attachments<M>(middleware: &M, m: MessageValideAct
 
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }
+
+async fn requete_get_cles_stream<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+                                    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_get_cles_stream Message : {:?}", &m.message);
+    let requete: ParametresGetClesStream = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_cles_stream cle parsed : {:?}", requete);
+
+    if ! m.verifier_roles(vec![RolesCertificats::Stream]) {
+        let reponse = json!({"err": true, "message": "certificat doit etre de role stream"});
+        return Ok(Some(middleware.formatter_reponse(reponse, None)?));
+    }
+
+    let user_id = requete.user_id;
+
+    let mut hachage_bytes = Vec::new();
+    let mut hachage_bytes_demandes = HashSet::new();
+    hachage_bytes_demandes.extend(requete.fuuids.iter().map(|f| f.to_string()));
+
+    let projection = doc! {"_id": true};
+    let opts = FindOneOptions::builder().projection(projection).build();
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    for fuuid in requete.fuuids {
+        let filtre = doc! {
+            format!("attachments.{}", &fuuid): true,
+            "user_id": &user_id,
+        };
+        debug!("requete_get_cles_stream Filtre : {:?}", filtre);
+        let resultat = collection.find_one(filtre, Some(opts.clone())).await?;
+        hachage_bytes_demandes.remove(fuuid.as_str());
+        if resultat.is_some() {
+            hachage_bytes.push(fuuid);
+        }
+    }
+
+    // Utiliser certificat du message client (requete) pour demande de rechiffrage
+    let pem_rechiffrage: Vec<String> = match &m.message.certificat {
+        Some(c) => {
+            let fp_certs = c.get_pem_vec();
+            fp_certs.into_iter().map(|cert| cert.pem).collect()
+        },
+        None => Err(format!(""))?
+    };
+
+    // let projection = doc! {"attachments": true, "tuuid": true, "metadata": true};
+    // let opts = FindOptions::builder().projection(projection).limit(1000).build();
+    // let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    // let mut curseur = collection.find(filtre, Some(opts)).await?;
+
+    // let mut hachage_bytes_demandes = HashSet::new();
+    // hachage_bytes_demandes.extend(requete.fuuids.iter().map(|f| f.to_string()));
+    // let mut hachage_bytes = Vec::new();
+    // while let Some(fresult) = curseur.next().await {
+    //     debug!("requete_get_cles_stream document trouve pour permission cle : {:?}", fresult);
+    //     let doc_mappe: ResultatDocsPermission = convertir_bson_deserializable(fresult?)?;
+    //     if let Some(fuuids) = doc_mappe.fuuids {
+    //         for d in fuuids {
+    //             if hachage_bytes_demandes.remove(d.as_str()) {
+    //                 hachage_bytes.push(d);
+    //             }
+    //         }
+    //     }
+    //     if let Some(metadata) = doc_mappe.metadata {
+    //         if let Some(ref_hachage_bytes) = metadata.ref_hachage_bytes {
+    //             if hachage_bytes_demandes.remove(ref_hachage_bytes.as_str()) {
+    //                 hachage_bytes.push(ref_hachage_bytes);
+    //             }
+    //         }
+    //     }
+    // }
+
+    let permission = json!({
+        "liste_hachage_bytes": hachage_bytes,
+        "certificat_rechiffrage": pem_rechiffrage,
+    });
+
+    // Emettre requete de rechiffrage de cle, reponse acheminee directement au demandeur
+    let reply_to = match m.reply_q {
+        Some(r) => r,
+        None => Err(format!("requetes.requete_get_cles_stream Pas de reply q pour message"))?
+    };
+    let correlation_id = match m.correlation_id {
+        Some(r) => r,
+        None => Err(format!("requetes.requete_get_cles_stream Pas de correlation_id pour message"))?
+    };
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE)
+        .exchanges(vec![Securite::L4Secure])
+        .reply_to(reply_to)
+        .correlation_id(correlation_id)
+        .blocking(false)
+        .build();
+
+    debug!("requete_get_cles_stream Transmettre requete permission dechiffrage cle : {:?}", permission);
+
+    middleware.transmettre_requete(routage, &permission).await?;
+
+    Ok(None)  // Aucune reponse a transmettre, c'est le maitre des cles qui va repondre
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParametresGetClesStream {
+    pub user_id: String,
+    pub fuuids: Vec<String>,
+}
+
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// struct ResultatDocsPermission {
+//     tuuid: String,
+//     fuuids: Option<Vec<String>>,
+// }
+
