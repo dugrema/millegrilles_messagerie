@@ -10,6 +10,7 @@ use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::{chrono, chrono::{DateTime, Utc}};
 use millegrilles_common_rust::chrono::Timelike;
+use millegrilles_common_rust::configuration::ConfigMessages;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::domaines::GestionnaireDomaine;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
@@ -103,7 +104,9 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
         true
     }
 
-    async fn preparer_database<M>(&self, middleware: &M) -> Result<(), String> where M: MongoDao {
+    async fn preparer_database<M>(&self, middleware: &M) -> Result<(), String>
+        where M: MongoDao + ConfigMessages
+    {
         preparer_index_mongodb_custom(middleware).await
     }
 
@@ -290,7 +293,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
 /// Creer index MongoDB
 pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), String>
-    where M: MongoDao
+    where M: MongoDao + ConfigMessages
 {
     // Index uuid_transaction pour messages_outgoing
     let options_unique_outgoing_transactions_uuid_transaction = IndexOptions {
@@ -301,6 +304,7 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         ChampIndex {nom_champ: String::from("uuid_transaction"), direction: 1},
     );
     middleware.create_index(
+        middleware,
         NOM_COLLECTION_OUTGOING_PROCESSING,
         champs_index_outgoing_transactions_uuid_transactions,
         Some(options_unique_outgoing_transactions_uuid_transaction)
@@ -315,6 +319,7 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         ChampIndex {nom_champ: String::from("uuid_message"), direction: 1},
     );
     middleware.create_index(
+        middleware,
         NOM_COLLECTION_OUTGOING_PROCESSING,
         champs_index_outgoing_transactions_uuid_transactions,
         Some(options_unique_outgoing_transactions_uuid_transaction)
@@ -330,6 +335,7 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         ChampIndex {nom_champ: String::from("idmgs_unprocessed"), direction: 1},
     );
     middleware.create_index(
+        middleware,
         NOM_COLLECTION_OUTGOING_PROCESSING,
         champs_index_unprocessed,
         Some(options_unprocessed)
@@ -345,6 +351,7 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         ChampIndex {nom_champ: String::from("dns_unresolved"), direction: 1},
     );
     middleware.create_index(
+        middleware,
         NOM_COLLECTION_OUTGOING_PROCESSING,
         champs_index_dns_unresolved,
         Some(options_dns_unresolved)
@@ -360,6 +367,7 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         ChampIndex {nom_champ: String::from("uuid_transaction"), direction: 1},
     );
     middleware.create_index(
+        middleware,
         NOM_COLLECTION_INCOMING,
         champs_incoming_userid,
         Some(options_incoming_userid)
@@ -374,6 +382,7 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         ChampIndex {nom_champ: String::from("attachments"), direction: 1},
     );
     middleware.create_index(
+        middleware,
         NOM_COLLECTION_INCOMING,
         champs_attachments_fuuids,
         Some(options_attachments_fuuids)
@@ -389,6 +398,7 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         ChampIndex {nom_champ: String::from("user_id"), direction: 1},
     );
     middleware.create_index(
+        middleware,
         NOM_COLLECTION_INCOMING,
         champs_uuidmessage_userid,
         Some(options_uuidmessage_userid)
@@ -403,6 +413,7 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         ChampIndex {nom_champ: String::from(CHAMP_ATTACHMENTS_TRAITES), direction: 1},
     );
     middleware.create_index(
+        middleware,
         NOM_COLLECTION_INCOMING,
         champs_incoming_attachmentstraites,
         Some(options_incoming_attachmentstraites)
