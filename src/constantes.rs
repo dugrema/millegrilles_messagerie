@@ -5,6 +5,7 @@ use millegrilles_common_rust::serde::{Deserialize, Serialize};
 pub const DOMAINE_NOM: &str = "Messagerie";
 pub const DOMAINE_POSTMASTER: &str = "postmaster";
 pub const NOM_COLLECTION_TRANSACTIONS: &str = "Messagerie";
+pub const NOM_COLLECTION_CONFIGURATION: &str = "Messagerie/configuration";
 pub const NOM_COLLECTION_INCOMING: &str = "Messagerie/incoming";
 pub const NOM_COLLECTION_OUTGOING: &str = "Messagerie/outgoing";
 pub const NOM_COLLECTION_OUTGOING_PROCESSING: &str = "Messagerie/outgoing_processing";
@@ -31,6 +32,7 @@ pub const REQUETE_GET_MESSAGES_ATTACHMENTS: &str = "getMessagesAttachments";
 pub const REQUETE_DECHIFFRAGE: &str = "dechiffrage";
 pub const REQUETE_GET_USAGER_ACCES_ATTACHMENTS: &str = "getUsagerAccesAttachments";
 pub const REQUETE_GET_CLES_STREAM: &str = "getClesStream";
+pub const REQUETE_GET_CONFIGURATION_NOTIFICATIONS: &str = "getConfigurationNotifications";
 
 pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
 pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";
@@ -46,6 +48,7 @@ pub const TRANSACTION_TRANSFERT_COMPLETE: &str = "transfertComplete";
 pub const TRANSACTION_SUPPRIMER_MESSAGES: &str = "supprimerMessages";
 pub const TRANSACTION_SUPPRIMER_CONTACTS: &str = "supprimerContacts";
 pub const TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE: &str = "confirmerTransmissionMillegrille";
+pub const TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS: &str = "conserverConfigurationNotifications";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 
@@ -89,6 +92,8 @@ pub const CHAMP_UUID_CONTACTS: &str = "uuid_contacts";
 pub const CHAMP_ATTACHMENTS_TRAITES: &str = "attachments_traites";
 pub const CHAMP_ATTACHMENTS: &str = "attachments";
 pub const CHAMP_ATTACHMENTS_RETRY: &str = "attachments_retry";
+pub const CHAMP_CONFIG_KEY: &str = "config_key";
+pub const CONFIG_KEY_NOTIFICATIONS: &str = "notifications";
 
 pub const CODE_UPLOAD_DEBUT: u32 = 1;
 pub const CODE_UPLOAD_ENCOURS: u32 = 2;

@@ -61,6 +61,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_GET_MESSAGES_ATTACHMENTS => requete_get_messages_attachments(middleware, message, gestionnaire).await,
                 REQUETE_GET_USAGER_ACCES_ATTACHMENTS => requete_usager_acces_attachments(middleware, message).await,
                 REQUETE_GET_CLES_STREAM => requete_get_cles_stream(middleware, message, gestionnaire).await,
+                REQUETE_GET_CONFIGURATION_NOTIFICATIONS => requete_get_configuration_notifications(middleware, message, gestionnaire).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -756,3 +757,38 @@ pub struct ParametresGetClesStream {
 //     fuuids: Option<Vec<String>>,
 // }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParametresGetConfigurationNotifications {
+    inclure_cles: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseConfigurationNotifications {
+    email_from: Option<String>,
+    intervalle_min: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    smtp: Option<ConfigurationNotificationsSmtp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    webpush: Option<ConfigurationNotificationsWebpush>,
+}
+
+async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_get_configuration_notifications Message : {:?}", &m.message);
+    let requete: ParametresGetConfigurationNotifications = m.message.get_msg().map_contenu(None)?;
+    debug!("requete_get_configuration_notifications cle parsed : {:?}", requete);
+
+    let filtre = doc!{ CHAMP_CONFIG_KEY: CONFIG_KEY_NOTIFICATIONS };
+    let collection = middleware.get_collection(NOM_COLLECTION_CONFIGURATION)?;
+    let configuration: ReponseConfigurationNotifications = match collection.find_one(filtre, None).await? {
+        Some(d) => convertir_bson_deserializable(d)?,
+        None => {
+            let reponse = json!({"ok": false, "err": "Configuration absente"});
+            return Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+        }
+    };
+
+    Ok(Some(middleware.formatter_reponse(&configuration, None)?))
+}

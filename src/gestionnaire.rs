@@ -186,6 +186,20 @@ pub fn preparer_queues() -> Vec<QueueType> {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L2Prive});
     }
 
+    let requetes_publiques: Vec<&str> = vec![
+        REQUETE_GET_CONFIGURATION_NOTIFICATIONS,
+    ];
+    for req in requetes_publiques {
+        rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L1Public});
+    }
+
+    let commandes_protegees: Vec<&str> = vec![
+        TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS,
+    ];
+    for cmd in commandes_protegees {
+        rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L3Protege});
+    }
+
     let commandes_privees: Vec<&str> = vec![
         TRANSACTION_POSTER,
         TRANSACTION_RECEVOIR,
@@ -254,6 +268,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_TRANSFERT_COMPLETE,
         TRANSACTION_SUPPRIMER_MESSAGES,
         TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE,
+        TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {

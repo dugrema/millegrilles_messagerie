@@ -74,6 +74,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_SUPPRIMER_MESSAGES => supprimer_message(gestionnaire, middleware, transaction).await,
         TRANSACTION_SUPPRIMER_CONTACTS => supprimer_contacts(gestionnaire, middleware, transaction).await,
         TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE => confirmer_transmission_millegrille(gestionnaire, middleware, transaction).await,
+        TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS => conserver_configuration_notifications(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
@@ -926,6 +927,59 @@ async fn confirmer_transmission_millegrille<M, T>(gestionnaire: &GestionnaireMes
     match collection.update_one(filtre, ops, None).await {
         Ok(_d) => (),
         Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur sauvegarde etat outgoing"))?
+    }
+
+    middleware.reponse_ok()
+}
+
+async fn conserver_configuration_notifications<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
+    -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    debug!("conserver_configuration_notifications Consommer transaction : {:?}", &transaction);
+    let transaction_mappee = match transaction.convertir::<TransactionConserverConfigurationNotifications>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.conserver_configuration_notifications Erreur conversion transaction : {:?}", e))?
+    };
+
+    let filtre = doc!{ CHAMP_CONFIG_KEY: CONFIG_KEY_NOTIFICATIONS };
+    let set_on_insert = doc!{
+        CHAMP_CREATION: Utc::now(),
+        CHAMP_CONFIG_KEY: CONFIG_KEY_NOTIFICATIONS,
+    };
+    let mut set_ops = doc!{
+        "email_from": transaction_mappee.email_from,
+        "intervalle_min": transaction_mappee.intervalle_min,
+    };
+    if let Some(smtp) = transaction_mappee.smtp {
+        match convertir_to_bson(smtp) {
+            Ok(d) => { set_ops.insert("smtp", d); },
+            Err(e) => Err(format!("transactions.conserver_configuration_notifications Erreur conversion config smtp : {:?}", e))?
+        }
+    }
+    if let Some(webpush) = transaction_mappee.webpush {
+        match convertir_to_bson(webpush) {
+            Ok(d) => { set_ops.insert("webpush", d); },
+            Err(e) => Err(format!("transactions.conserver_configuration_notifications Erreur conversion config webpush : {:?}", e))?
+        }
+    }
+
+    let ops = doc! {
+        "$set": set_ops,
+        "$setOnInsert": set_on_insert,
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    let options = UpdateOptions::builder()
+        .upsert(true)
+        .build();
+
+    let collection = middleware.get_collection(NOM_COLLECTION_CONFIGURATION)?;
+    match collection.update_one(filtre, ops, Some(options)).await {
+        Ok(_d) => (),
+        Err(e) => Err(format!("transactions.conserver_configuration_notifications Erreur sauvegarde etat outgoing"))?
     }
 
     middleware.reponse_ok()

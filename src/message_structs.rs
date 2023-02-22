@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use log::debug;
-use millegrilles_common_rust::chiffrage_cle::{MetaInformationCle, ReponseDechiffrageCles};
+use millegrilles_common_rust::chiffrage_cle::{CommandeSauvegarderCle, MetaInformationCle, ReponseDechiffrageCles};
 
 use millegrilles_common_rust::chrono;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::chrono::serde::ts_seconds_option;
+use millegrilles_common_rust::common_messages::DataChiffre;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
@@ -475,3 +476,38 @@ pub struct ConfirmerTransmissionMessageMillegrille {
     pub destinataires: Vec<ConfirmerDestinataire>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfigurationNotificationsSmtp {
+    pub actif: bool,
+    pub hostname: String,
+    pub port: Option<i64>,
+    pub username: String,
+    pub replyto: Option<String>,
+    pub chiffre: DataChiffre,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfigurationNotificationsWebpush {
+    pub actif: bool,
+    pub clepublique: String,
+    pub icon: Option<String>,
+    pub chiffre: DataChiffre,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClesConfigurationNotifications {
+    pub smtp: Option<CommandeSauvegarderCle>,
+    pub webpush: Option<CommandeSauvegarderCle>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionConserverConfigurationNotifications {
+    pub email_from: Option<String>,
+    pub intervalle_min: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smtp: Option<ConfigurationNotificationsSmtp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webpush: Option<ConfigurationNotificationsWebpush>,
+    #[serde(skip_serializing, rename(deserialize="_cles"))]
+    pub cles: Option<ClesConfigurationNotifications>,
+}

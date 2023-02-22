@@ -14,7 +14,7 @@ use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::L2Prive;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
-use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction};
+use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
 use millegrilles_common_rust::mongodb::Collection;
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
@@ -73,6 +73,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         TRANSACTION_LU => commande_lu(middleware, m, gestionnaire).await,
         TRANSACTION_SUPPRIMER_MESSAGES => commande_supprimer_message(middleware, m, gestionnaire).await,
         TRANSACTION_SUPPRIMER_CONTACTS => commande_supprimer_contacts(middleware, m, gestionnaire).await,
+        TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS => commande_conserver_configuration_notifications(middleware, m, gestionnaire).await,
 
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, m.action))?,
@@ -526,6 +527,49 @@ async fn commande_supprimer_contacts<M>(middleware: &M, m: MessageValideAction, 
 
     // Traiter la transaction
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn commande_conserver_configuration_notifications<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commandes.commande_conserver_configuration_notifications Consommer commande : {:?}", & m.message);
+    let mut commande: TransactionConserverConfigurationNotifications = m.message.get_msg().map_contenu(None)?;
+    debug!("commandes.commande_conserver_configuration_notifications Commande parsed : {:?}", commande);
+
+    // Autorisation: Action usager avec compte prive ou delegation globale
+    if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+        // Ok
+    } else {
+        Err(format!("commandes.commande_supprimer_contacts: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    }
+
+    match commande.cles {
+        Some(cles) => {
+
+            if let Some(smtp) = cles.smtp {
+                // Conserver cle smtp
+                let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                    .exchanges(vec![Securite::L4Secure])
+                    .build();
+                middleware.transmettre_commande(routage, &smtp, true).await?;
+            }
+
+            if let Some(webpush) = cles.webpush {
+                let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                    .exchanges(vec![Securite::L4Secure])
+                    .build();
+                middleware.transmettre_commande(routage, &webpush, true).await?;
+            }
+
+            // Retirer les cles
+            m.message.parsed.contenu.remove("_cles");
+
+            Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+        },
+        None => Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    }
+
 }
 
 async fn commande_upload_attachment<M>(middleware: &M, m: MessageValideAction)
