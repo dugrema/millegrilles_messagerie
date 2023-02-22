@@ -90,6 +90,7 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
         String::from(NOM_COLLECTION_ATTACHMENTS_PROCESSING),
         String::from(NOM_COLLECTION_PROFILS),
         String::from(NOM_COLLECTION_CONTACTS),
+        String::from(NOM_COLLECTION_CONFIGURATION),
     ] }
 
     fn get_q_transactions(&self) -> Option<String> { Some(String::from(NOM_Q_TRANSACTIONS)) }
@@ -310,6 +311,21 @@ pub fn preparer_queues() -> Vec<QueueType> {
 pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), String>
     where M: MongoDao + ConfigMessages
 {
+    // Index uuid_transaction pour messages_outgoing
+    let options_unique_config = IndexOptions {
+        nom_index: Some(String::from("config_key")),
+        unique: true
+    };
+    let champs_index_config = vec!(
+        ChampIndex {nom_champ: String::from("config_key"), direction: 1},
+    );
+    middleware.create_index(
+        middleware,
+        NOM_COLLECTION_CONFIGURATION,
+        champs_index_config,
+        Some(options_unique_config)
+    ).await?;
+
     // Index uuid_transaction pour messages_outgoing
     let options_unique_outgoing_transactions_uuid_transaction = IndexOptions {
         nom_index: Some(String::from("uuid_transaction")),
