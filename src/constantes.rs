@@ -50,6 +50,7 @@ pub const TRANSACTION_SUPPRIMER_MESSAGES: &str = "supprimerMessages";
 pub const TRANSACTION_SUPPRIMER_CONTACTS: &str = "supprimerContacts";
 pub const TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE: &str = "confirmerTransmissionMillegrille";
 pub const TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS: &str = "conserverConfigurationNotifications";
+pub const TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS: &str = "sauvegarderClewebpushNotifications";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 

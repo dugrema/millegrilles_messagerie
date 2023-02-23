@@ -511,3 +511,10 @@ pub struct TransactionConserverConfigurationNotifications {
     #[serde(skip_serializing, rename(deserialize="_cles"))]
     pub cles: Option<ClesConfigurationNotifications>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionCleWebpush {
+    pub data_chiffre: DataChiffre,
+    pub cle_publique_pem: String,
+    pub cle_publique_urlsafe: String,
+}

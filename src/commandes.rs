@@ -5,13 +5,14 @@ use std::sync::Arc;
 use base64::{Engine as _, engine::general_purpose};
 
 use log::{debug, error, info, warn};
-use millegrilles_common_rust::{serde_json, serde_json::json};
+use millegrilles_common_rust::{multibase, serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
+use millegrilles_common_rust::common_messages::DataChiffre;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::L2Prive;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
@@ -20,6 +21,7 @@ use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_tr
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
 use millegrilles_common_rust::mongodb::Collection;
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
+use millegrilles_common_rust::multibase::Base;
 use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
@@ -795,7 +797,7 @@ pub struct CommandeGenererClewebpushNotifications {}
 
 async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait
 {
     debug!("generer_clewebpush_notifications Consommer commande : {:?}", & m.message);
     let commande: CommandeGenererClewebpushNotifications = m.message.get_msg().map_contenu(None)?;
@@ -820,6 +822,69 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
     // Garder les 65 derniers bytes uniquement
     let public_bytes_key = &public_bytes[public_bytes.len()-65..];
     let public_key_str = general_purpose::URL_SAFE.encode(public_bytes_key);
+
+    let data_dechiffre = json!({"cle_privee_pem": &pem_prive});
+    let data_dechiffre_string = serde_json::to_string(&data_dechiffre)?;
+    let data_dechiffre_bytes = data_dechiffre_string.as_bytes();
+
+    // Creer transaction pour sauvegarder cles webpush
+    let data_chiffre = {
+        let mut chiffreur = middleware.get_chiffrage_factory().get_chiffreur()?;
+
+        let mut output = [0u8; 2 * 1024];
+        let output_size = chiffreur.update(data_dechiffre_bytes, &mut output)?;
+        let (final_output_size, keys) = chiffreur.finalize(&mut output[output_size..])?;
+
+        debug!("generer_clewebpush_notifications Data chiffre {} + {}\nOutput : {:?}",
+            output_size, final_output_size, &output[..output_size+final_output_size]);
+        let data_chiffre_multibase: String = multibase::encode(Base::Base64, &output[..output_size+final_output_size]);
+
+        let mut identificateurs = HashMap::new();
+        identificateurs.insert("type".to_string(), "notifications_webpush".to_string());
+        debug!("commande_initialiser_profil Hachage bytes {}", keys.hachage_bytes);
+        let cle_profil = keys.get_commande_sauvegarder_cles(DOMAINE_NOM, None, identificateurs)?;
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        debug!("commande_initialiser_profil Sauvegarder cle {:?}", cle_profil);
+        // middleware.transmettre_commande(routage, &cle_profil, true).await?;
+
+        // Sauvegarder cle chiffree
+        let data_chiffre = DataChiffre {
+            ref_hachage_bytes: Some(cle_profil.hachage_bytes.clone()),
+            data_chiffre: data_chiffre_multibase,
+            format: cle_profil.format.clone(),
+            header: cle_profil.header.clone(),
+            tag: cle_profil.tag.clone(),
+        };
+
+        debug!("generer_clewebpush_notifications Data chiffre : {:?}", data_chiffre);
+        data_chiffre
+    };
+
+    // Generer nouvelle transaction
+    let transaction = TransactionCleWebpush {
+        data_chiffre,
+        cle_publique_pem: pem_public,
+        cle_publique_urlsafe: public_key_str.clone(),
+    };
+
+    debug!("generer_clewebpush_notifications Transaction cle webpush {:?}", transaction);
+
+    // let reponse = sauvegarder_traiter_transaction_serializable(
+    //     middleware, &transaction, gestionnaire,
+    //     DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS).await?;
+
+    // let transaction = middleware.formatter_message(
+    //     &transaction, Some(DOMAINE_NOM), Some(m.action.as_str()), None, None, false)?;
+    // let mut transaction = MessageValideAction::from_message_millegrille(
+    //     transaction, TypeMessageOut::Transaction)?;
+    //
+    // // Conserver enveloppe pour validation
+    // transaction.message.set_certificat(middleware.get_enveloppe_signature().enveloppe.clone());
+    //
+    // // Traiter la transaction
+    // Ok(sauvegarder_traiter_transaction(middleware, transaction, gestionnaire).await?)
 
     let reponse = json!({"ok": true, "webpush_public_key": public_key_str});
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
