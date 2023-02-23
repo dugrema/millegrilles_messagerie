@@ -95,7 +95,9 @@ pub const CHAMP_ATTACHMENTS_TRAITES: &str = "attachments_traites";
 pub const CHAMP_ATTACHMENTS: &str = "attachments";
 pub const CHAMP_ATTACHMENTS_RETRY: &str = "attachments_retry";
 pub const CHAMP_CONFIG_KEY: &str = "config_key";
+
 pub const CONFIG_KEY_NOTIFICATIONS: &str = "notifications";
+pub const CONFIG_KEY_CLEWEBPUSH: &str = "cle_webpush";
 
 pub const CODE_UPLOAD_DEBUT: u32 = 1;
 pub const CODE_UPLOAD_ENCOURS: u32 = 2;

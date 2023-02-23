@@ -196,7 +196,9 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     let commandes_protegees: Vec<&str> = vec![
         COMMANDE_GENERER_CLEWEBPUSH_NOTIFICATIONS,
+
         TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS,
+        TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS,
     ];
     for cmd in commandes_protegees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L3Protege});
@@ -271,6 +273,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_SUPPRIMER_MESSAGES,
         TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE,
         TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS,
+        TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {

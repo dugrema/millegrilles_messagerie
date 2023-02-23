@@ -847,7 +847,7 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
             .exchanges(vec![Securite::L4Secure])
             .build();
         debug!("commande_initialiser_profil Sauvegarder cle {:?}", cle_profil);
-        // middleware.transmettre_commande(routage, &cle_profil, true).await?;
+        middleware.transmettre_commande(routage, &cle_profil, true).await?;
 
         // Sauvegarder cle chiffree
         let data_chiffre = DataChiffre {
@@ -871,9 +871,9 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
 
     debug!("generer_clewebpush_notifications Transaction cle webpush {:?}", transaction);
 
-    // let reponse = sauvegarder_traiter_transaction_serializable(
-    //     middleware, &transaction, gestionnaire,
-    //     DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS).await?;
+    let reponse = sauvegarder_traiter_transaction_serializable(
+        middleware, &transaction, gestionnaire,
+        DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS).await?;
 
     // let transaction = middleware.formatter_message(
     //     &transaction, Some(DOMAINE_NOM), Some(m.action.as_str()), None, None, false)?;
@@ -882,7 +882,7 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
     //
     // // Conserver enveloppe pour validation
     // transaction.message.set_certificat(middleware.get_enveloppe_signature().enveloppe.clone());
-    //
+
     // // Traiter la transaction
     // Ok(sauvegarder_traiter_transaction(middleware, transaction, gestionnaire).await?)
 
