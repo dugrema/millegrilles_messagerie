@@ -690,33 +690,6 @@ async fn requete_get_cles_stream<M>(middleware: &M, m: MessageValideAction, gest
         None => Err(format!(""))?
     };
 
-    // let projection = doc! {"attachments": true, "tuuid": true, "metadata": true};
-    // let opts = FindOptions::builder().projection(projection).limit(1000).build();
-    // let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    // let mut curseur = collection.find(filtre, Some(opts)).await?;
-
-    // let mut hachage_bytes_demandes = HashSet::new();
-    // hachage_bytes_demandes.extend(requete.fuuids.iter().map(|f| f.to_string()));
-    // let mut hachage_bytes = Vec::new();
-    // while let Some(fresult) = curseur.next().await {
-    //     debug!("requete_get_cles_stream document trouve pour permission cle : {:?}", fresult);
-    //     let doc_mappe: ResultatDocsPermission = convertir_bson_deserializable(fresult?)?;
-    //     if let Some(fuuids) = doc_mappe.fuuids {
-    //         for d in fuuids {
-    //             if hachage_bytes_demandes.remove(d.as_str()) {
-    //                 hachage_bytes.push(d);
-    //             }
-    //         }
-    //     }
-    //     if let Some(metadata) = doc_mappe.metadata {
-    //         if let Some(ref_hachage_bytes) = metadata.ref_hachage_bytes {
-    //             if hachage_bytes_demandes.remove(ref_hachage_bytes.as_str()) {
-    //                 hachage_bytes.push(ref_hachage_bytes);
-    //             }
-    //         }
-    //     }
-    // }
-
     let permission = json!({
         "liste_hachage_bytes": hachage_bytes,
         "certificat_rechiffrage": pem_rechiffrage,
@@ -751,12 +724,6 @@ pub struct ParametresGetClesStream {
     pub fuuids: Vec<String>,
 }
 
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// struct ResultatDocsPermission {
-//     tuuid: String,
-//     fuuids: Option<Vec<String>>,
-// }
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ParametresGetConfigurationNotifications {
     inclure_cles: Option<bool>,
@@ -770,6 +737,7 @@ pub struct ReponseConfigurationNotifications {
     smtp: Option<ConfigurationNotificationsSmtp>,
     #[serde(skip_serializing_if = "Option::is_none")]
     webpush: Option<ConfigurationNotificationsWebpush>,
+    webpush_public_key: Option<String>,
 }
 
 async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -782,12 +750,22 @@ async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageVa
 
     let filtre = doc!{ CHAMP_CONFIG_KEY: CONFIG_KEY_NOTIFICATIONS };
     let collection = middleware.get_collection(NOM_COLLECTION_CONFIGURATION)?;
-    let configuration: ReponseConfigurationNotifications = match collection.find_one(filtre, None).await? {
+    let mut configuration: ReponseConfigurationNotifications = match collection.find_one(filtre, None).await? {
         Some(d) => convertir_bson_deserializable(d)?,
         None => {
             let reponse = json!({"ok": false, "err": "Configuration absente"});
             return Ok(Some(middleware.formatter_reponse(&reponse, None)?))
         }
+    };
+
+    let filtre = doc!{ CHAMP_CONFIG_KEY: CONFIG_KEY_CLEWEBPUSH };
+    let collection = middleware.get_collection(NOM_COLLECTION_CONFIGURATION)?;
+    match collection.find_one(filtre, None).await? {
+        Some(d) => {
+            let config_webpush: TransactionCleWebpush = convertir_bson_deserializable(d)?;
+            configuration.webpush_public_key = Some(config_webpush.cle_publique_urlsafe);
+        },
+        None => debug!("Aucune configuration web push presente")
     };
 
     Ok(Some(middleware.formatter_reponse(&configuration, None)?))
