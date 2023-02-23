@@ -489,9 +489,7 @@ pub struct ConfigurationNotificationsSmtp {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfigurationNotificationsWebpush {
     pub actif: bool,
-    pub clepublique: String,
     pub icon: Option<String>,
-    pub chiffre: DataChiffre,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
