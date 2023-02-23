@@ -195,6 +195,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
     }
 
     let commandes_protegees: Vec<&str> = vec![
+        COMMANDE_GENERER_CLEWEBPUSH_NOTIFICATIONS,
         TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS,
     ];
     for cmd in commandes_protegees {

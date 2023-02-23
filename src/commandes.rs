@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::Arc;
 
+use base64::{Engine as _, engine::general_purpose};
+
 use log::{debug, error, info, warn};
 use millegrilles_common_rust::{serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
@@ -24,6 +26,10 @@ use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::verificateur::{ValidationOptions, VerificateurMessage};
+use millegrilles_common_rust::openssl::pkey::{PKey, Private};
+use millegrilles_common_rust::openssl::bn::BigNumContext;
+use millegrilles_common_rust::openssl::nid::Nid;
+use millegrilles_common_rust::openssl::ec::{EcGroup, EcKey, PointConversionForm};
 
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
@@ -64,6 +70,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         COMMANDE_UPLOAD_ATTACHMENT => commande_upload_attachment(middleware, m).await,
         COMMANDE_FUUID_VERIFIER_EXISTANCE => commande_fuuid_verifier_existance(middleware, m).await,
         COMMANDE_CONSERVER_CLES_ATTACHMENTS => commande_conserver_cles_attachments(middleware, m, gestionnaire).await,
+        COMMANDE_GENERER_CLEWEBPUSH_NOTIFICATIONS => generer_clewebpush_notifications(middleware, m, gestionnaire).await,
 
         // Transactions
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
@@ -670,6 +677,28 @@ async fn commande_fuuid_verifier_existance<M>(middleware: &M, m: MessageValideAc
     Ok(None)
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeConserverClesAttachment {
+    pub cles: HashMap<String, CommandeSauvegarderCle>,
+    pub preuves: HashMap<String, PreuvePossessionCles>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PreuvePossessionCles {
+    pub preuve: String,
+    pub date: DateEpochSeconds,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponsePreuvePossessionCles {
+    pub verification: HashMap<String, bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseCle {
+    pub ok: Option<bool>
+}
+
 async fn commande_conserver_cles_attachments<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509,
@@ -762,23 +791,37 @@ async fn commande_conserver_cles_attachments<M>(middleware: &M, m: MessageValide
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CommandeConserverClesAttachment {
-    pub cles: HashMap<String, CommandeSauvegarderCle>,
-    pub preuves: HashMap<String, PreuvePossessionCles>,
+pub struct CommandeGenererClewebpushNotifications {}
+
+async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("generer_clewebpush_notifications Consommer commande : {:?}", & m.message);
+    let commande: CommandeGenererClewebpushNotifications = m.message.get_msg().map_contenu(None)?;
+    debug!("generer_clewebpush_notifications parsed : {:?}", commande);
+
+    // let nouvelle_cle = Dh::get_2048_256()?.generate_key()?;
+    // let pem_prive = nouvelle_cle.params_to_pem()?;
+
+    let nid = Nid::X9_62_PRIME256V1; // NIST P-256 curve
+    let group = EcGroup::from_curve_name(nid)?;
+    let key = EcKey::generate(&group)?;
+    // let mut ctx = BigNumContext::new()?;
+
+    // let nouvelle_cle = PKey::ec_gen("prime256v1")?;
+    let pem_prive = String::from_utf8(key.private_key_to_pem()?)?;
+
+    let pem_public = String::from_utf8(key.public_key_to_pem()?)?;
+
+    debug!("PEM PRIVE cle notification : \n{}\n{}", pem_prive, pem_public);
+
+    let public_bytes = key.public_key_to_der()?;
+    // Garder les 65 derniers bytes uniquement
+    let public_bytes_key = &public_bytes[public_bytes.len()-65..];
+    let public_key_str = general_purpose::URL_SAFE.encode(public_bytes_key);
+
+    let reponse = json!({"ok": true, "webpush_public_key": public_key_str});
+    Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PreuvePossessionCles {
-    pub preuve: String,
-    pub date: DateEpochSeconds,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ReponsePreuvePossessionCles {
-    pub verification: HashMap<String, bool>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ReponseCle {
-    pub ok: Option<bool>
-}
