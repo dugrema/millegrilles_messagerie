@@ -116,6 +116,7 @@ impl PompeMessages {
     {
         traiter_dns_unresolved(middleware, &trigger).await;
         traiter_messages_locaux(middleware, &trigger).await;
+        traiter_notifications(middleware, &trigger).await;
         traiter_attachments_tiers(middleware, &trigger).await;
         traiter_messages_tiers(middleware, &trigger).await;
         expirer_messages(middleware, &trigger).await;
@@ -203,6 +204,12 @@ async fn traiter_messages_locaux<M>(middleware: &M, trigger: &MessagePompe)
             error!("traiter_messages_locaux Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
         }
     }
+}
+
+async fn traiter_notifications<M>(middleware: &M, trigger: &MessagePompe)
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    debug!("traiter_notifications");
 }
 
 async fn traiter_messages_tiers<M>(middleware: &M, trigger: &MessagePompe)
