@@ -33,6 +33,7 @@ pub const REQUETE_DECHIFFRAGE: &str = "dechiffrage";
 pub const REQUETE_GET_USAGER_ACCES_ATTACHMENTS: &str = "getUsagerAccesAttachments";
 pub const REQUETE_GET_CLES_STREAM: &str = "getClesStream";
 pub const REQUETE_GET_CONFIGURATION_NOTIFICATIONS: &str = "getConfigurationNotifications";
+pub const REQUETE_GET_CLEPUBLIQUE_WEBPUSH: &str = "getClepubliqueWebpush";
 
 pub const COMMANDE_CONFIRMER_TRANSMISSION: &str = "confirmerTransmission";
 pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";

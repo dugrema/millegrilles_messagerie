@@ -189,6 +189,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     let requetes_publiques: Vec<&str> = vec![
         REQUETE_GET_CONFIGURATION_NOTIFICATIONS,
+        REQUETE_GET_CLEPUBLIQUE_WEBPUSH,
     ];
     for req in requetes_publiques {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("requete.{}.{}", DOMAINE_NOM, req), exchange: Securite::L1Public});

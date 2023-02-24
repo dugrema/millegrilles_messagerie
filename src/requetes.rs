@@ -62,6 +62,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
                 REQUETE_GET_USAGER_ACCES_ATTACHMENTS => requete_usager_acces_attachments(middleware, message).await,
                 REQUETE_GET_CLES_STREAM => requete_get_cles_stream(middleware, message, gestionnaire).await,
                 REQUETE_GET_CONFIGURATION_NOTIFICATIONS => requete_get_configuration_notifications(middleware, message, gestionnaire).await,
+                REQUETE_GET_CLEPUBLIQUE_WEBPUSH => requete_get_clepublique_webpush(middleware, message, gestionnaire).await,
                 _ => {
                     error!("Message requete/action inconnue : '{}'. Message dropped.", message.action);
                     Ok(None)
@@ -769,4 +770,34 @@ async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageVa
     };
 
     Ok(Some(middleware.formatter_reponse(&configuration, None)?))
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseClePubliqueWebpush {
+    pub cle_publique_pem: String,
+    pub cle_publique_urlsafe: String,
+}
+
+async fn requete_get_clepublique_webpush<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+{
+    debug!("requete_get_cle_webpush Message : {:?}", &m.message);
+    // let requete: ParametresGetConfigurationNotifications = m.message.get_msg().map_contenu(None)?;
+    // debug!("requete_get_cle_webpush cle parsed : {:?}", requete);
+
+    let filtre = doc!{ CHAMP_CONFIG_KEY: CONFIG_KEY_CLEWEBPUSH };
+    let collection = middleware.get_collection(NOM_COLLECTION_CONFIGURATION)?;
+    let reponse = match collection.find_one(filtre, None).await? {
+        Some(d) => {
+            let config_webpush: ReponseClePubliqueWebpush = convertir_bson_deserializable(d)?;
+            middleware.formatter_reponse(&config_webpush, None)?
+        },
+        None => {
+            let reponse = json!({"ok": false, "err": "Configuration webpush introuvable"});
+            middleware.formatter_reponse(&reponse, None)?
+        }
+    };
+
+    Ok(Some(reponse))
 }
