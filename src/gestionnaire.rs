@@ -206,6 +206,8 @@ pub fn preparer_queues() -> Vec<QueueType> {
     }
 
     let commandes_privees: Vec<&str> = vec![
+        COMMANDE_CONSERVER_CLES_ATTACHMENTS,
+
         TRANSACTION_POSTER,
         TRANSACTION_RECEVOIR,
         TRANSACTION_INITIALISER_PROFIL,
@@ -213,7 +215,9 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_LU,
         TRANSACTION_SUPPRIMER_MESSAGES,
         TRANSACTION_SUPPRIMER_CONTACTS,
-        COMMANDE_CONSERVER_CLES_ATTACHMENTS,
+        TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS,
+        TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH,
+        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH,
     ];
     for cmd in commandes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L2Prive});
@@ -275,6 +279,9 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE,
         TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS,
         TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS,
+        TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS,
+        TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH,
+        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH,
     ];
     for ts in transactions_secures {
         rk_transactions.push(ConfigRoutingExchange {

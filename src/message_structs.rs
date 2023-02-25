@@ -516,3 +516,16 @@ pub struct TransactionCleWebpush {
     pub cle_publique_pem: String,
     pub cle_publique_urlsafe: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionSauvegarderUsagerConfigNotifications {
+    pub email_actif: Option<bool>,
+    pub email_adresse: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionSauvegarderSubscriptionWebpush {
+    pub endpoint: String,
+}
+
+pub type TransactionRetirerSubscriptionWebpush = TransactionSauvegarderSubscriptionWebpush;

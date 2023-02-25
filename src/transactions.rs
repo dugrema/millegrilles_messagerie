@@ -48,7 +48,11 @@ where
         TRANSACTION_SUPPRIMER_MESSAGES |
         TRANSACTION_SUPPRIMER_CONTACTS |
         TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE |
-        TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS => {
+        TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS |
+        TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS |
+        TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH |
+        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH
+        => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
                 false => Err(format!("transactions.consommer_transaction: Message autorisation invalide (pas 4.secure)"))
@@ -77,6 +81,9 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE => confirmer_transmission_millegrille(gestionnaire, middleware, transaction).await,
         TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS => conserver_configuration_notifications(gestionnaire, middleware, transaction).await,
         TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS => sauvegarder_clewebpush_notifications(gestionnaire, middleware, transaction).await,
+        TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS => sauvegarder_usager_config_notifications(gestionnaire, middleware, transaction).await,
+        TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH => sauvegarder_subscription_webpush(gestionnaire, middleware, transaction).await,
+        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH => retirer_subscription_webpush(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
     }
 }
@@ -1030,6 +1037,132 @@ async fn sauvegarder_clewebpush_notifications<M, T>(gestionnaire: &GestionnaireM
     match collection.update_one(filtre, ops, Some(options)).await {
         Ok(_d) => (),
         Err(e) => Err(format!("transactions.sauvegarder_clewebpush_notifications Erreur sauvegarde cle web push : {:?}", e))?
+    }
+
+    middleware.reponse_ok()
+}
+
+async fn sauvegarder_usager_config_notifications<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
+    -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    let user_id = match &transaction.get_enveloppe_certificat() {
+        Some(c) => match c.get_user_id()? {
+            Some(u) => u.to_owned(),
+            None => Err(format!("Certificat sans user_id"))?
+        },
+        None => Err(format!("Certificat sans user_id"))?
+    };
+
+    debug!("sauvegarder_usager_config_notifications Consommer transaction : {:?}", &transaction);
+    let transaction_mappee = match transaction.convertir::<TransactionSauvegarderUsagerConfigNotifications>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.sauvegarder_usager_config_notifications Erreur conversion transaction : {:?}", e))?
+    };
+
+    let filtre = doc!{ CHAMP_USER_ID: user_id };
+
+    let email_actif = match transaction_mappee.email_actif {
+        Some(e) => e,
+        None => false
+    };
+
+    let set_ops = doc!{
+        "email_actif": email_actif,
+        "email_adresse": transaction_mappee.email_adresse,
+    };
+
+    let ops = doc! {
+        "$set": set_ops,
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    match collection.update_one(filtre, ops, None).await {
+        Ok(_d) => (),
+        Err(e) => Err(format!("transactions.sauvegarder_usager_config_notifications Erreur sauvegarde config usager notifications : {:?}", e))?
+    }
+
+    middleware.reponse_ok()
+}
+
+async fn sauvegarder_subscription_webpush<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
+    -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    let user_id = match &transaction.get_enveloppe_certificat() {
+        Some(c) => match c.get_user_id()? {
+            Some(u) => u.to_owned(),
+            None => Err(format!("Certificat sans user_id"))?
+        },
+        None => Err(format!("Certificat sans user_id"))?
+    };
+
+    debug!("sauvegarder_subscription_webpush Consommer transaction : {:?}", &transaction);
+    let transaction_mappee = match transaction.convertir::<TransactionSauvegarderSubscriptionWebpush>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.sauvegarder_subscription_webpush Erreur conversion transaction : {:?}", e))?
+    };
+
+    let filtre = doc!{ CHAMP_USER_ID: user_id };
+
+    let addtoset_ops = doc!{
+        "webpush_endpoints": transaction_mappee.endpoint
+    };
+
+    let ops = doc! {
+        "$addToSet": addtoset_ops,
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    match collection.update_one(filtre, ops, None).await {
+        Ok(_d) => (),
+        Err(e) => Err(format!("transactions.sauvegarder_subscription_webpush Erreur sauvegarde endpoint web push : {:?}", e))?
+    }
+
+    middleware.reponse_ok()
+}
+
+async fn retirer_subscription_webpush<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
+    -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    let user_id = match &transaction.get_enveloppe_certificat() {
+        Some(c) => match c.get_user_id()? {
+            Some(u) => u.to_owned(),
+            None => Err(format!("Certificat sans user_id"))?
+        },
+        None => Err(format!("Certificat sans user_id"))?
+    };
+
+    debug!("retirer_subscription_webpush Consommer transaction : {:?}", &transaction);
+    let transaction_mappee = match transaction.convertir::<TransactionRetirerSubscriptionWebpush>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.retirer_subscription_webpush Erreur conversion transaction : {:?}", e))?
+    };
+
+    let filtre = doc!{ CHAMP_USER_ID: user_id };
+
+    let pull_ops = doc!{
+        "webpush_endpoints": transaction_mappee.endpoint
+    };
+
+    let ops = doc! {
+        "$pull": pull_ops,
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    match collection.update_one(filtre, ops, None).await {
+        Ok(_d) => (),
+        Err(e) => Err(format!("transactions.retirer_subscription_webpush Erreur retrait endpoint web push : {:?}", e))?
     }
 
     middleware.reponse_ok()

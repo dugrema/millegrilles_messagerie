@@ -83,6 +83,9 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         TRANSACTION_SUPPRIMER_MESSAGES => commande_supprimer_message(middleware, m, gestionnaire).await,
         TRANSACTION_SUPPRIMER_CONTACTS => commande_supprimer_contacts(middleware, m, gestionnaire).await,
         TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS => commande_conserver_configuration_notifications(middleware, m, gestionnaire).await,
+        TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS => commande_sauvegarder_usager_config_notifications(middleware, m, gestionnaire).await,
+        TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH => commande_sauvegarder_subscription_webpush(middleware, m, gestionnaire).await,
+        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH => commande_retirer_subscription_webpush(middleware, m, gestionnaire).await,
 
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, m.action))?,
@@ -890,3 +893,65 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }
 
+async fn commande_sauvegarder_usager_config_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commande_sauvegarder_usager_config_notifications Consommer : {:?}", & m.message);
+    let commande: TransactionSauvegarderUsagerConfigNotifications = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_sauvegarder_usager_config_notifications parsed : {:?}", commande);
+
+    // Verifier que le certificat a un user_id
+    match &m.message.certificat {
+        Some(c) => {
+            if c.get_user_id()?.is_none() {
+                Err(format!("commandes.commande_sauvegarder_usager_config_notifications User_id manquant"))?
+            }
+        },
+        None => Err(format!("commandes.commande_sauvegarder_usager_config_notifications User_id manquant"))?
+    }
+
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn commande_sauvegarder_subscription_webpush<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commande_sauvegarder_subscription_webpush Consommer : {:?}", & m.message);
+    let commande: TransactionSauvegarderSubscriptionWebpush = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_sauvegarder_subscription_webpush parsed : {:?}", commande);
+
+    // Verifier que le certificat a un user_id
+    match &m.message.certificat {
+        Some(c) => {
+            if c.get_user_id()?.is_none() {
+                Err(format!("commandes.commande_sauvegarder_subscription_webpush User_id manquant"))?
+            }
+        },
+        None => Err(format!("commandes.commande_sauvegarder_subscription_webpush User_id manquant"))?
+    }
+
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn commande_retirer_subscription_webpush<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commande_retirer_subscription_webpush Consommer : {:?}", & m.message);
+    let commande: TransactionRetirerSubscriptionWebpush = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_retirer_subscription_webpush parsed : {:?}", commande);
+
+    // Verifier que le certificat a un user_id
+    match &m.message.certificat {
+        Some(c) => {
+            if c.get_user_id()?.is_none() {
+                Err(format!("commandes.commande_retirer_subscription_webpush User_id manquant"))?
+            }
+        },
+        None => Err(format!("commandes.commande_retirer_subscription_webpush User_id manquant"))?
+    }
+
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
