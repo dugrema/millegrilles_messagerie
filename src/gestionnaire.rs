@@ -241,6 +241,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     let commandes_secure: Vec<&str> = vec![
         COMMANDE_FUUID_VERIFIER_EXISTANCE,
+        COMMANDE_EMETTRE_NOTIFICATIONS_USAGER,
     ];
     for cmd in commandes_secure {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L4Secure});

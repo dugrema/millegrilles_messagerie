@@ -11,7 +11,7 @@ use millegrilles_common_rust::bson::{doc, Document};
 use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
-use millegrilles_common_rust::chrono::{DateTime, Utc};
+use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
 use millegrilles_common_rust::common_messages::DataChiffre;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::L2Prive;
@@ -73,6 +73,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         COMMANDE_FUUID_VERIFIER_EXISTANCE => commande_fuuid_verifier_existance(middleware, m).await,
         COMMANDE_CONSERVER_CLES_ATTACHMENTS => commande_conserver_cles_attachments(middleware, m, gestionnaire).await,
         COMMANDE_GENERER_CLEWEBPUSH_NOTIFICATIONS => generer_clewebpush_notifications(middleware, m, gestionnaire).await,
+        COMMANDE_EMETTRE_NOTIFICATIONS_USAGER => emettre_notifications_usager(middleware, m, gestionnaire).await,
 
         // Transactions
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
@@ -891,6 +892,57 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
 
     let reponse = json!({"ok": true, "webpush_public_key": public_key_str});
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
+}
+
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeEmettreNotificationsUsager {
+    user_id: String,
+}
+
+async fn emettre_notifications_usager<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait
+{
+    debug!("emettre_notifications_usager Consommer commande : {:?}", & m.message);
+    let commande: CommandeEmettreNotificationsUsager = m.message.get_msg().map_contenu(None)?;
+    debug!("emettre_notifications_usager parsed : {:?}", commande);
+
+    let user_id = commande.user_id.as_str();
+
+    // Charger le document via update pour eviter multiple traitements des meme notifications.
+    let filtre = doc! {
+        CHAMP_USER_ID: user_id,
+        CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: {"$lte": Utc::now()}
+    };
+    let ops = doc! {
+        "$set": {
+            CHAMP_NOTIFICATIONS_PENDING: false,
+            CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: Utc::now() + Duration::seconds(60),
+            CHAMP_UUID_MESSAGES_NOTIFICATIONS: [],  // Vider notifications
+        },
+        "$currentDate": { CHAMP_MODIFICATION: true },
+    };
+    let options = FindOneAndUpdateOptions::builder()
+        .return_document(ReturnDocument::Before)
+        .build();
+    let collection = middleware.get_collection(NOM_COLLECTION_NOTIFICATIONS_OUTGOING)?;
+    let doc_notifications = collection.find_one_and_update(filtre, ops, Some(options)).await?;
+
+    if let Some(d) = doc_notifications {
+        let notifications: UsagerNotificationsOutgoing = convertir_bson_deserializable(d)?;
+        if let Some(liste) = notifications.uuid_messages_notifications {
+            if liste.len() == 1 {
+                debug!("Charger contenu de la notification et emettre");
+            } else {
+                debug!("Emettre notification pour {} messages", liste.len());
+            }
+        }
+    } else {
+        debug!("emettre_notifications_usager Notifications deja emises pour {}", user_id);
+    }
+
+    Ok(None)
 }
 
 async fn commande_sauvegarder_usager_config_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
