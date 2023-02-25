@@ -1069,9 +1069,14 @@ async fn sauvegarder_usager_config_notifications<M, T>(gestionnaire: &Gestionnai
         None => false
     };
 
+    let email_chiffre = match convertir_to_bson(transaction_mappee.email_chiffre) {
+        Ok(e) => e,
+        Err(e) => Err(format!("transactions.sauvegarder_usager_config_notifications Erreur conversion data_chiffre en bson {:?}", e))?
+    };
+
     let set_ops = doc!{
         "email_actif": email_actif,
-        "email_adresse": transaction_mappee.email_adresse,
+        "email_chiffre": email_chiffre,
     };
 
     let ops = doc! {

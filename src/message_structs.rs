@@ -250,6 +250,8 @@ pub struct ProfilReponse {
     pub adresses: Vec<String>,
     pub cle_ref_hachage_bytes: String,
     pub cles: Option<ReponseDechiffrageCles>,
+    pub email_actif: Option<bool>,
+    pub email_chiffre: Option<DataChiffre>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -520,7 +522,7 @@ pub struct TransactionCleWebpush {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionSauvegarderUsagerConfigNotifications {
     pub email_actif: Option<bool>,
-    pub email_adresse: Option<String>,
+    pub email_chiffre: Option<DataChiffre>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
