@@ -101,6 +101,9 @@ pub const CHAMP_ATTACHMENTS_TRAITES: &str = "attachments_traites";
 pub const CHAMP_ATTACHMENTS: &str = "attachments";
 pub const CHAMP_ATTACHMENTS_RETRY: &str = "attachments_retry";
 pub const CHAMP_CONFIG_KEY: &str = "config_key";
+pub const CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: &str = "expiration_lock_notifications";
+pub const CHAMP_UUID_MESSAGES_NOTIFICATIONS: &str = "uuid_messages_notifications";
+pub const CHAMP_NOTIFICATIONS_PENDING: &str = "notifications_pending";
 
 pub const CONFIG_KEY_NOTIFICATIONS: &str = "notifications";
 pub const CONFIG_KEY_CLEWEBPUSH: &str = "cle_webpush";

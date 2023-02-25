@@ -31,9 +31,7 @@ use crate::message_structs::*;
 use crate::pompe_messages::{emettre_evenement_pompe, marquer_outgoing_resultat, PompeMessages, verifier_message_complete};
 
 const CHAMP_NOTIFICATIONS_ACTIVES: &str = "notifications_actives";
-const CHAMP_UUID_MESSAGES_NOTIFICATIONS: &str = "uuid_messages_notifications";
 const CHAMP_DERNIERE_NOTIFICATION: &str = "derniere_notification";
-const CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: &str = "expiration_lock_notifications";
 
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -606,31 +604,17 @@ async fn ajouter_notification_usager<M>(middleware: &M, user_id: &str, uuid_tran
     let ops = doc! {
         "$setOnInsert": set_on_insert_ops,
         "$push": push_ops,
+        "$set": {
+            CHAMP_NOTIFICATIONS_PENDING: true,
+        },
         "$currentDate": {
             CHAMP_MODIFICATION: true,
             CHAMP_DERNIERE_NOTIFICATION: true,
         }
     };
 
-    let options = FindOneAndUpdateOptions::builder()
-        .upsert(true)
-        .return_document(ReturnDocument::After)
-        .build();
-
-    let doc_notifications = collection.find_one_and_update(
-        filtre, ops, Some(options)).await?
-        .expect("find_one_and_update");
-
-    let doc_notifications: UsagerNotificationsOutgoing = convertir_bson_deserializable(doc_notifications)?;
-
-    if doc_notifications.expiration_lock_notifications < Utc::now() {
-        debug!("Emettre trigger notifications usager {} immediatement", user_id);
-        let routage = RoutageMessageAction::builder(DOMAINE_NOM, COMMANDE_EMETTRE_NOTIFICATIONS_USAGER)
-            .exchanges(vec![Securite::L4Secure])
-            .build();
-        let commande = json!({ CHAMP_USER_ID: user_id });
-        middleware.transmettre_commande(routage, &commande, false).await?;
-    }
+    let options = UpdateOptions::builder().upsert(true).build();
+    collection.update_one(filtre, ops, Some(options)).await?;
 
     Ok(())
 }

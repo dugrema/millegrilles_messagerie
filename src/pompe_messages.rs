@@ -210,6 +210,41 @@ async fn traiter_notifications<M>(middleware: &M, trigger: &MessagePompe)
     where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
     debug!("traiter_notifications");
+    if let Err(e) = emettre_notifications_usager(middleware).await {
+        error!("traiter_notifications Erreur {:?}", e);
+    }
+}
+
+async fn emettre_notifications_usager<M>(middleware: &M)
+    -> Result<(), Box<dyn Error>>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    let filtre = doc!{
+        CHAMP_NOTIFICATIONS_PENDING: true,
+        CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: {"$lte": Utc::now()},
+    };
+    let options = FindOptions::builder()
+        .limit(1000)
+        .build();
+
+    let collection = middleware.get_collection(NOM_COLLECTION_NOTIFICATIONS_OUTGOING)?;
+    let mut curseur = collection.find(filtre, Some(options)).await?;
+    while let Some(r) = curseur.next().await {
+        let notifications: UsagerNotificationsOutgoing = match convertir_bson_deserializable(r?) {
+            Ok(n) => n,
+            Err(e) => {
+                warn!("emettre_notifications_usager Erreur mapping notifications : {:?}", e);
+                continue;
+            }
+        };
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM, COMMANDE_EMETTRE_NOTIFICATIONS_USAGER)
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        let commande = json!({ CHAMP_USER_ID: notifications.user_id });
+        middleware.transmettre_commande(routage, &commande, false).await?;
+    }
+
+    Ok(())
 }
 
 async fn traiter_messages_tiers<M>(middleware: &M, trigger: &MessagePompe)
