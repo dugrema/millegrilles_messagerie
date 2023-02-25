@@ -13,6 +13,7 @@ pub const NOM_COLLECTION_ATTACHMENTS: &str = "Messagerie/attachments";
 pub const NOM_COLLECTION_ATTACHMENTS_PROCESSING: &str = "Messagerie/attachments_processing";
 pub const NOM_COLLECTION_PROFILS: &str = "Messagerie/profils";
 pub const NOM_COLLECTION_CONTACTS: &str = "Messagerie/contacts";
+pub const NOM_COLLECTION_NOTIFICATIONS_OUTGOING: &str = "Messagerie/notifications_outgoing";
 
 pub const DOMAINE_FICHIERS_NOM: &str = "fichiers";
 
@@ -40,6 +41,7 @@ pub const COMMANDE_PROCHAIN_ATTACHMENT: &str = "prochainAttachment";
 pub const COMMANDE_ACTIVITE_FUUIDS: &str = "confirmerActiviteFuuids";
 pub const COMMANDE_CONSERVER_CLES_ATTACHMENTS: &str = "conserverClesAttachments";
 pub const COMMANDE_GENERER_CLEWEBPUSH_NOTIFICATIONS: &str = "genererClewebpushNotifications";
+pub const COMMANDE_EMETTRE_NOTIFICATIONS_USAGER: &str = "emettreNotificationsUsager";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";

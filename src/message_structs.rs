@@ -9,6 +9,7 @@ use millegrilles_common_rust::common_messages::DataChiffre;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
+use millegrilles_common_rust::bson::serde_helpers::deserialize_chrono_datetime_from_bson_datetime;
 use crate::constantes::*;
 
 #[derive(Clone, Debug, Serialize)]
@@ -538,4 +539,14 @@ pub struct ProfilUsagerNotifications {
     pub email_actif: Option<bool>,
     pub email_adresse: Option<String>,
     pub webpush_endpoints: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UsagerNotificationsOutgoing {
+    pub user_id: String,
+    #[serde(deserialize_with="deserialize_chrono_datetime_from_bson_datetime")]
+    pub derniere_notification: DateTime<Utc>,
+    #[serde(deserialize_with="deserialize_chrono_datetime_from_bson_datetime")]
+    pub expiration_lock_notifications: DateTime<Utc>,
+    pub uuid_messages_notifications: Option<Vec<String>>,
 }

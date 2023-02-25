@@ -7,6 +7,7 @@ use millegrilles_common_rust::{chrono, serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::{bson, bson::{doc, Document}};
 use millegrilles_common_rust::bson::{Array, Bson};
+use millegrilles_common_rust::bson::serde_helpers::deserialize_chrono_datetime_from_bson_datetime;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
@@ -30,6 +31,9 @@ use crate::message_structs::*;
 use crate::pompe_messages::{emettre_evenement_pompe, marquer_outgoing_resultat, PompeMessages, verifier_message_complete};
 
 const CHAMP_NOTIFICATIONS_ACTIVES: &str = "notifications_actives";
+const CHAMP_UUID_MESSAGES_NOTIFICATIONS: &str = "uuid_messages_notifications";
+const CHAMP_DERNIERE_NOTIFICATION: &str = "derniere_notification";
+const CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: &str = "expiration_lock_notifications";
 
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -495,7 +499,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     }
                 }
 
-                // Evenement de nouveau message pour front-end
+                // Evenement de nouveau message pour front-end, notifications
                 if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
                     // let message_mappe: MessageIncoming =
                     let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
@@ -534,11 +538,101 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         }
     }
 
+    if let Err(e) = emettre_notifications(
+        middleware, &reponse_mappee.usagers, uuid_message.as_str(), uuid_transaction.as_str()).await {
+        warn!("transaction_recevoir Erreur emission notifications : {:?}", e);
+    }
+
     let reponse = json!({"ok": true, "usagers": destinataires_resultat});
     match middleware.formatter_reponse(&reponse, None) {
         Ok(r) => Ok(Some(r)),
         Err(e) => Err(format!("transactions.transaction_recevoir Erreur formattage reponse : {:?}", e))?
     }
+}
+
+async fn emettre_notifications<M>(middleware: &M, usagers: &HashMap<String, Option<String>>, uuid_transaction: &str, uuid_message: &str)
+    -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509
+{
+    debug!("emettre_notifications uuid_transaction {}, uuid_message {}", uuid_transaction, uuid_message);
+    // Trouver user_ids avec notifications activees, emettre trigger
+    let mut user_ids = Vec::new();
+    for (_, user_id) in usagers {
+        if let Some(u) = user_id.as_ref() {
+            user_ids.push(u.as_str());
+        }
+    }
+
+    let collection_profils = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    let options = FindOptions::builder()
+        .projection(doc!{CHAMP_USER_ID: true})
+        .build();
+    let filtre = doc! {CHAMP_NOTIFICATIONS_ACTIVES: true, CHAMP_USER_ID: {"$in": user_ids}};
+    let mut curseur = collection_profils.find(filtre, Some(options)).await?;
+    while let Some(res) = curseur.next().await {
+        let row = res?;
+        let user_id = match row.get(CHAMP_USER_ID) {
+            Some(u) => match u.as_str() {
+                Some(u) => u,
+                None => continue
+            },
+            None => continue
+        };
+        ajouter_notification_usager(middleware, user_id, uuid_transaction, uuid_message).await?;
+    }
+
+    Ok(())
+}
+
+async fn ajouter_notification_usager<M>(middleware: &M, user_id: &str, uuid_transaction: &str, uuid_message: &str)
+    -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509
+{
+    debug!("Conserver trigger notification pour {} sur uuid_transaction {}, uuid_message {}", user_id, uuid_transaction, uuid_message);
+
+    let filtre = doc! { CHAMP_USER_ID: user_id };
+    let collection = middleware.get_collection(NOM_COLLECTION_NOTIFICATIONS_OUTGOING)?;
+
+    let set_on_insert_ops = doc! {
+        CHAMP_CREATION: Utc::now(),
+        CHAMP_USER_ID: user_id,
+        CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: Utc::now(),
+    };
+
+    let push_ops = doc! {
+        CHAMP_UUID_MESSAGES_NOTIFICATIONS: uuid_message
+    };
+
+    let ops = doc! {
+        "$setOnInsert": set_on_insert_ops,
+        "$push": push_ops,
+        "$currentDate": {
+            CHAMP_MODIFICATION: true,
+            CHAMP_DERNIERE_NOTIFICATION: true,
+        }
+    };
+
+    let options = FindOneAndUpdateOptions::builder()
+        .upsert(true)
+        .return_document(ReturnDocument::After)
+        .build();
+
+    let doc_notifications = collection.find_one_and_update(
+        filtre, ops, Some(options)).await?
+        .expect("find_one_and_update");
+
+    let doc_notifications: UsagerNotificationsOutgoing = convertir_bson_deserializable(doc_notifications)?;
+
+    if doc_notifications.expiration_lock_notifications < Utc::now() {
+        debug!("Emettre trigger notifications usager {} immediatement", user_id);
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM, COMMANDE_EMETTRE_NOTIFICATIONS_USAGER)
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        let commande = json!({ CHAMP_USER_ID: user_id });
+        middleware.transmettre_commande(routage, &commande, false).await?;
+    }
+
+    Ok(())
 }
 
 async fn transaction_initialiser_profil<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
