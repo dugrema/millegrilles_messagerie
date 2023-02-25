@@ -29,6 +29,8 @@ use crate::gestionnaire::GestionnaireMessagerie;
 use crate::message_structs::*;
 use crate::pompe_messages::{emettre_evenement_pompe, marquer_outgoing_resultat, PompeMessages, verifier_message_complete};
 
+const CHAMP_NOTIFICATIONS_ACTIVES: &str = "notifications_actives";
+
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
 where
@@ -1062,7 +1064,7 @@ async fn sauvegarder_usager_config_notifications<M, T>(gestionnaire: &Gestionnai
         Err(e) => Err(format!("transactions.sauvegarder_usager_config_notifications Erreur conversion transaction : {:?}", e))?
     };
 
-    let filtre = doc!{ CHAMP_USER_ID: user_id };
+    let filtre = doc!{ CHAMP_USER_ID: &user_id };
 
     let email_actif = match transaction_mappee.email_actif {
         Some(e) => e,
@@ -1074,10 +1076,14 @@ async fn sauvegarder_usager_config_notifications<M, T>(gestionnaire: &Gestionnai
         Err(e) => Err(format!("transactions.sauvegarder_usager_config_notifications Erreur conversion data_chiffre en bson {:?}", e))?
     };
 
-    let set_ops = doc!{
+    let mut set_ops = doc!{
         "email_actif": email_actif,
         "email_chiffre": email_chiffre,
     };
+    if email_actif == true {
+        // Activer notifications pour le profil usager
+        set_ops.insert(CHAMP_NOTIFICATIONS_ACTIVES, true);
+    }
 
     let ops = doc! {
         "$set": set_ops,
@@ -1088,6 +1094,11 @@ async fn sauvegarder_usager_config_notifications<M, T>(gestionnaire: &Gestionnai
     match collection.update_one(filtre, ops, None).await {
         Ok(_d) => (),
         Err(e) => Err(format!("transactions.sauvegarder_usager_config_notifications Erreur sauvegarde config usager notifications : {:?}", e))?
+    }
+
+    if ! email_actif {
+        // Verifier si on desactive les notifications
+        verifier_toggle_notifications_actives(middleware, user_id.as_str()).await?;
     }
 
     middleware.reponse_ok()
@@ -1120,6 +1131,7 @@ async fn sauvegarder_subscription_webpush<M, T>(gestionnaire: &GestionnaireMessa
     };
 
     let ops = doc! {
+        "$set": {CHAMP_NOTIFICATIONS_ACTIVES: true},
         "$addToSet": addtoset_ops,
         "$currentDate": {CHAMP_MODIFICATION: true},
     };
@@ -1153,7 +1165,7 @@ async fn retirer_subscription_webpush<M, T>(gestionnaire: &GestionnaireMessageri
         Err(e) => Err(format!("transactions.retirer_subscription_webpush Erreur conversion transaction : {:?}", e))?
     };
 
-    let filtre = doc!{ CHAMP_USER_ID: user_id };
+    let filtre = doc!{ CHAMP_USER_ID: &user_id };
 
     let pull_ops = doc!{
         "webpush_endpoints": transaction_mappee.endpoint
@@ -1170,5 +1182,45 @@ async fn retirer_subscription_webpush<M, T>(gestionnaire: &GestionnaireMessageri
         Err(e) => Err(format!("transactions.retirer_subscription_webpush Erreur retrait endpoint web push : {:?}", e))?
     }
 
+    verifier_toggle_notifications_actives(middleware, user_id.as_str()).await?;
+
     middleware.reponse_ok()
+}
+
+/// Toggle notifications a OFF s'il ne reste aucun web_push et email_actif est false
+async fn verifier_toggle_notifications_actives<M>(middleware: &M, user_id: &str) -> Result<(), String>
+    where M: GenerateurMessages + MongoDao + ValidateurX509
+{
+    let filtre = doc!{ CHAMP_USER_ID: user_id };
+    let collection = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    let doc_profil: ProfilUsagerNotifications = match collection.find_one(filtre.clone(), None).await {
+        Ok(d) => match d {
+            Some(d) => match convertir_bson_deserializable(d) {
+                Ok(d) => d,
+                Err(e) => Err(format!("transactions.verifier_toggle_notifications_actives Erreur conversion profil : {}", user_id))?
+            },
+            None => Err(format!("transactions.verifier_toggle_notifications_actives Aucun profil correspondant : {}", user_id))?
+        },
+        Err(e) => Err(format!("transactions.verifier_toggle_notifications_actives Erreur chargement profil : {:?}", e))?
+    };
+
+    let email_actif = match doc_profil.email_actif {
+        Some(b) => b,
+        None => false
+    };
+
+    let webpush_actif = match doc_profil.webpush_endpoints {
+        Some(w) => w.len() > 0,
+        None => false
+    };
+
+    let ops = doc! {
+        "$set": {CHAMP_NOTIFICATIONS_ACTIVES: email_actif || webpush_actif},
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    match collection.update_one(filtre, ops, None).await {
+        Ok(r) => Ok(()),
+        Err(e) => Err(format!("transactions.verifier_toggle_notifications_actives Erreur toggle notifications actives {:?}", e))?
+    }
 }
