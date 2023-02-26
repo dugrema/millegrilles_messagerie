@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error;
 use log::debug;
 use millegrilles_common_rust::chiffrage_cle::{CommandeSauvegarderCle, MetaInformationCle, ReponseDechiffrageCles};
 
@@ -10,6 +11,8 @@ use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
 use millegrilles_common_rust::bson::serde_helpers::deserialize_chrono_datetime_from_bson_datetime;
+use millegrilles_common_rust::multibase::{Base, encode};
+use web_push::WebPushMessage;
 use crate::constantes::*;
 
 #[derive(Clone, Debug, Serialize)]
@@ -576,15 +579,59 @@ pub struct ProfilUsagerDechiffre {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PostmasterWebPushPayload {
+    pub content: String,
+    pub crypto_headers: HashMap<String, String>,
+    pub content_encoding: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PostmasterWebPushMessage {
+    pub endpoint: String,
+    pub ttl: u32,
+    pub payload: Option<PostmasterWebPushPayload>,
+}
+
+impl TryFrom<WebPushMessage> for PostmasterWebPushMessage {
+    type Error = Box<dyn Error>;
+
+    fn try_from(value: WebPushMessage) -> Result<Self, Self::Error> {
+        let payload = match value.payload {
+            Some(inner) => {
+                let content: String = encode(Base::Base64, inner.content);
+
+                let mut crypto_headers = HashMap::new();
+                for (k, v) in inner.crypto_headers.into_iter() {
+                    crypto_headers.insert(k.to_string(), v);
+                }
+
+                Some(PostmasterWebPushPayload {
+                    content,
+                    crypto_headers,
+                    content_encoding: inner.content_encoding.to_string(),
+                })
+            },
+            None => None
+        };
+
+        Ok(Self {
+            endpoint: value.endpoint.to_string(),
+            ttl: value.ttl,
+            payload,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NotificationOutgoingPostmaster {
     pub user_id: String,
     pub email_adresse: Option<String>,
     pub email_title: Option<String>,
     pub email_body: Option<String>,
-    pub webpush_payload: Option<Vec<String>>,
+    pub webpush_payload: Option<Vec<PostmasterWebPushMessage>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WebpushConfigurationClePrivee {
-    cle_privee_pem: Option<String>,
+    pub cle_privee_pem: Option<String>,
 }

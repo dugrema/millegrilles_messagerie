@@ -34,6 +34,7 @@ use millegrilles_common_rust::openssl::nid::Nid;
 use millegrilles_common_rust::openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use millegrilles_common_rust::dechiffrage::dechiffrer_documents;
 use millegrilles_common_rust::serde_json::Value;
+use web_push::{ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushMessageBuilder};
 
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
@@ -1014,14 +1015,36 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
         None => (None, None, None)
     };
 
-    let webpush_payload = match profil_usager.webpush_subscriptions.is_some() {
-        true => {
+    let webpush_payload = match profil_usager.webpush_subscriptions {
+        Some(subscriptions) => {
             match hachage_bytes_webpush {
                 Some(inner) => {
                     match mapping_dechiffre.remove(inner.as_str()) {
                         Some(inner) => {
                             let value: WebpushConfigurationClePrivee = serde_json::from_value(inner)?;
-                            Some(vec![String::from("DUMMY webpush")])
+                            let cle_serveur = value.cle_privee_pem;
+                            match cle_serveur {
+                                Some(cle) => {
+                                    let mut messages = Vec::new();
+
+                                    for (_, s) in subscriptions {
+                                        let subscription_info = SubscriptionInfo::new(s.endpoint, s.keys_p256dh, s.keys_auth);
+                                        let mut sig_builder = VapidSignatureBuilder::from_pem(cle.as_bytes(), &subscription_info)?.build()?;
+                                        let mut builder = WebPushMessageBuilder::new(&subscription_info)?;
+                                        let content = body.as_bytes();
+                                        builder.set_payload(ContentEncoding::Aes128Gcm, content);
+                                        builder.set_vapid_signature(sig_builder);
+                                        let message = builder.build()?;
+
+                                        let postmaster_message = PostmasterWebPushMessage::try_from(message)?;
+
+                                        messages.push(postmaster_message);
+                                    }
+
+                                    Some(messages)
+                                },
+                                None => None
+                            }
                         },
                         None => None
                     }
@@ -1029,7 +1052,7 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
                 None => None
             }
         },
-        false => None
+        None => None
     };
 
     let notification = NotificationOutgoingPostmaster {
