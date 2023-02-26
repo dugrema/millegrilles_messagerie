@@ -8,6 +8,7 @@ mod pompe_messages;
 mod evenements;
 mod message_structs;
 mod attachments;
+mod communs;
 
 use crate::domaines_messagerie::run;
 

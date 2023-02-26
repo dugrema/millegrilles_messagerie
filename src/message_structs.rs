@@ -529,16 +529,22 @@ pub struct TransactionSauvegarderUsagerConfigNotifications {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionSauvegarderSubscriptionWebpush {
     pub endpoint: String,
+    pub expiration_time: Option<i64>,
+    pub keys_auth: String,
+    pub keys_p256dh: String,
 }
 
-pub type TransactionRetirerSubscriptionWebpush = TransactionSauvegarderSubscriptionWebpush;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionRetirerSubscriptionWebpush {
+    pub endpoint: String,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProfilUsagerNotifications {
     pub cle_ref_hachage_bytes: String,
     pub email_actif: Option<bool>,
     pub email_adresse: Option<String>,
-    pub webpush_endpoints: Option<Vec<String>>,
+    pub webpush_endpoints: Option<HashMap<String, TransactionSauvegarderSubscriptionWebpush>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

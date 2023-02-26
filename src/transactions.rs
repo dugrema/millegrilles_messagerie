@@ -24,6 +24,7 @@ use millegrilles_common_rust::serde_json::{Map, Value};
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::verificateur::ValidationOptions;
+use crate::communs::url_to_mongokey;
 
 use crate::constantes::*;
 use crate::gestionnaire::GestionnaireMessagerie;
@@ -32,6 +33,7 @@ use crate::pompe_messages::{emettre_evenement_pompe, marquer_outgoing_resultat, 
 
 const CHAMP_NOTIFICATIONS_ACTIVES: &str = "notifications_actives";
 const CHAMP_DERNIERE_NOTIFICATION: &str = "derniere_notification";
+const CHAMP_WEBPUSH_SUBSCRIPTIONS: &str = "webpush_subscriptions";
 
 pub async fn consommer_transaction<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -1204,13 +1206,21 @@ async fn sauvegarder_subscription_webpush<M, T>(gestionnaire: &GestionnaireMessa
 
     let filtre = doc!{ CHAMP_USER_ID: user_id };
 
-    let addtoset_ops = doc!{
-        "webpush_endpoints": transaction_mappee.endpoint
-    };
+    // let addtoset_ops = doc!{
+    //     "webpush_endpoints": transaction_mappee.endpoint
+    // };
 
+    let cle_endpoint = url_to_mongokey(transaction_mappee.endpoint.as_str())?;
+    let subscriptions = match convertir_to_bson(transaction_mappee) {
+        Ok(s) => s,
+        Err(e) => Err(format!("transactions.sauvegarder_subscription_webpush Erreur conversion subscription webpush {:?}", e))?
+    };
     let ops = doc! {
-        "$set": {CHAMP_NOTIFICATIONS_ACTIVES: true},
-        "$addToSet": addtoset_ops,
+        "$set": {
+            CHAMP_NOTIFICATIONS_ACTIVES: true,
+            format!("{}.{}", CHAMP_WEBPUSH_SUBSCRIPTIONS, cle_endpoint): subscriptions,
+        },
+        // "$addToSet": addtoset_ops,
         "$currentDate": {CHAMP_MODIFICATION: true},
     };
 
@@ -1245,12 +1255,14 @@ async fn retirer_subscription_webpush<M, T>(gestionnaire: &GestionnaireMessageri
 
     let filtre = doc!{ CHAMP_USER_ID: &user_id };
 
-    let pull_ops = doc!{
-        "webpush_endpoints": transaction_mappee.endpoint
+    let cle_endpoint = url_to_mongokey(transaction_mappee.endpoint.as_str())?;
+
+    let unset_ops = doc!{
+        format!("{}.{}", CHAMP_WEBPUSH_SUBSCRIPTIONS, cle_endpoint): true,
     };
 
     let ops = doc! {
-        "$pull": pull_ops,
+        "$unset": unset_ops,
         "$currentDate": {CHAMP_MODIFICATION: true},
     };
 
