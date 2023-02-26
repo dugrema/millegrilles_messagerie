@@ -730,17 +730,6 @@ pub struct ParametresGetConfigurationNotifications {
     inclure_cles: Option<bool>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ReponseConfigurationNotifications {
-    email_from: Option<String>,
-    intervalle_min: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    smtp: Option<ConfigurationNotificationsSmtp>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    webpush: Option<ConfigurationNotificationsWebpush>,
-    webpush_public_key: Option<String>,
-}
-
 async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + VerificateurMessage,

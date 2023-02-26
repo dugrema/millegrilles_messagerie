@@ -253,6 +253,8 @@ pub struct ProfilReponse {
     pub cles: Option<ReponseDechiffrageCles>,
     pub email_actif: Option<bool>,
     pub email_chiffre: Option<DataChiffre>,
+    pub notifications_actives: Option<bool>,
+    pub webpush_subscriptions: Option<HashMap<String, TransactionSauvegarderSubscriptionWebpush>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -555,4 +557,15 @@ pub struct UsagerNotificationsOutgoing {
     #[serde(deserialize_with="deserialize_chrono_datetime_from_bson_datetime")]
     pub expiration_lock_notifications: DateTime<Utc>,
     pub uuid_messages_notifications: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponseConfigurationNotifications {
+    pub email_from: Option<String>,
+    pub intervalle_min: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smtp: Option<ConfigurationNotificationsSmtp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webpush: Option<ConfigurationNotificationsWebpush>,
+    pub webpush_public_key: Option<String>,
 }

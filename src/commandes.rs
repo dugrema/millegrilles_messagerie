@@ -14,7 +14,7 @@ use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
 use millegrilles_common_rust::common_messages::DataChiffre;
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::constantes::Securite::L2Prive;
+use millegrilles_common_rust::constantes::Securite::{L2Prive, L3Protege};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
@@ -931,18 +931,79 @@ async fn emettre_notifications_usager<M>(middleware: &M, m: MessageValideAction,
 
     if let Some(d) = doc_notifications {
         let notifications: UsagerNotificationsOutgoing = convertir_bson_deserializable(d)?;
-        if let Some(liste) = notifications.uuid_messages_notifications {
-            if liste.len() == 1 {
-                debug!("Charger contenu de la notification et emettre");
-            } else {
-                debug!("Emettre notification pour {} messages", liste.len());
-            }
+        if let Err(e) = generer_notification_usager(middleware, notifications).await {
+            error!("commandes.emettre_notifications_usager Erreur generer notifications usager : {:?}", e);
         }
     } else {
         debug!("emettre_notifications_usager Notifications deja emises pour {}", user_id);
     }
 
     Ok(None)
+}
+
+async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNotificationsOutgoing)
+    -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    // Charger profil usager. Si profil inconnu, on abandonne.
+    let collection_profil = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
+    let profil_usager: ProfilReponse = match collection_profil.find_one(doc!{"user_id": &notifications.user_id}, None).await? {
+        Some(u) => convertir_bson_deserializable(u)?,
+        None => {
+            return Err(format!("commandes.generer_notification_usager Usager {} n'a pas de profil", notifications.user_id))?
+        }
+    };
+
+    // Charger configuration smtp, web push
+    let collection_configuration = middleware.get_collection(NOM_COLLECTION_CONFIGURATION)?;
+    let configuration_notifications: Option<ReponseConfigurationNotifications> = match collection_configuration.find_one(doc! {"config_key": "notifications"}, None).await? {
+        Some(d) => Some(convertir_bson_deserializable(d)?),
+        None => None
+    };
+    let configuration_cle_webpush: Option<TransactionCleWebpush> = match collection_configuration.find_one(doc! {"config_key": "cle_webpush"}, None).await? {
+        Some(c) => Some(convertir_bson_deserializable(c)?),
+        None => None
+    };
+
+    // Conserver hachage_bytes pour recuperer cles de dechiffrage
+    let mut hachage_bytes = Vec::new();
+    if let Some(e) = profil_usager.email_chiffre.as_ref() {
+        if let Some(h) = e.ref_hachage_bytes.as_ref() {
+            hachage_bytes.push(h.as_str());
+        }
+    }
+    if let Some(c) = &configuration_notifications {
+        if let Some(s) = c.smtp.as_ref() {
+            if let Some(h) = s.chiffre.ref_hachage_bytes.as_ref() {
+                hachage_bytes.push(h.as_str());
+            }
+        }
+    }
+    if let Some(inner) = &configuration_cle_webpush {
+        if let Some(inner) = inner.data_chiffre.ref_hachage_bytes.as_ref() {
+            hachage_bytes.push(inner.as_str());
+        }
+    }
+
+    // Demander cles de dechiffrage
+    let requete_cles = json!({MAITREDESCLES_CHAMP_LISTE_HACHAGE_BYTES: hachage_bytes, TRANSACTION_CHAMP_DOMAINE: DOMAINE_NOM});
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, REQUETE_DECHIFFRAGE)
+        .exchanges(vec![L3Protege])
+        .build();
+    debug!("generer_notification_usager Requete cles config notifications : {:?}", requete_cles);
+    let reponse_cles = middleware.transmettre_requete(routage, &requete_cles).await?;
+    debug!("generer_notification_usager Reponse cles dechiffrer config notifications : {:?}", reponse_cles);
+
+    todo!("fix me");
+
+    let email: Option<String> = match profil_usager.email_chiffre.as_ref() {
+        Some(e) => {
+            debug!("Dechiffrer adresse email de l'usager");
+            None
+        },
+        None => None
+    };
+
 }
 
 async fn commande_sauvegarder_usager_config_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
