@@ -42,6 +42,7 @@ pub const COMMANDE_ACTIVITE_FUUIDS: &str = "confirmerActiviteFuuids";
 pub const COMMANDE_CONSERVER_CLES_ATTACHMENTS: &str = "conserverClesAttachments";
 pub const COMMANDE_GENERER_CLEWEBPUSH_NOTIFICATIONS: &str = "genererClewebpushNotifications";
 pub const COMMANDE_EMETTRE_NOTIFICATIONS_USAGER: &str = "emettreNotificationsUsager";
+pub const COMMANDE_POST_NOTIFICATION: &str = "postNotification";
 
 pub const TRANSACTION_POSTER: &str = "poster";
 pub const TRANSACTION_RECEVOIR: &str = "recevoir";

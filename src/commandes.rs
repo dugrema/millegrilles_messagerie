@@ -12,7 +12,7 @@ use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509,
 use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
-use millegrilles_common_rust::common_messages::DataChiffre;
+use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::{L2Prive, L3Protege};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
@@ -33,6 +33,7 @@ use millegrilles_common_rust::openssl::bn::BigNumContext;
 use millegrilles_common_rust::openssl::nid::Nid;
 use millegrilles_common_rust::openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use millegrilles_common_rust::dechiffrage::dechiffrer_documents;
+use millegrilles_common_rust::serde_json::Value;
 
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
@@ -947,6 +948,8 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
     where M: GenerateurMessages + MongoDao
 {
     // Charger profil usager. Si profil inconnu, on abandonne.
+    let user_id = &notifications.user_id;
+
     let collection_profil = middleware.get_collection(NOM_COLLECTION_PROFILS)?;
     let profil_usager: ProfilReponse = match collection_profil.find_one(doc!{"user_id": &notifications.user_id}, None).await? {
         Some(u) => convertir_bson_deserializable(u)?,
@@ -957,10 +960,10 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
 
     // Charger configuration smtp, web push
     let collection_configuration = middleware.get_collection(NOM_COLLECTION_CONFIGURATION)?;
-    let configuration_notifications: Option<ReponseConfigurationNotifications> = match collection_configuration.find_one(doc! {"config_key": "notifications"}, None).await? {
-        Some(d) => Some(convertir_bson_deserializable(d)?),
-        None => None
-    };
+    // let configuration_notifications: Option<ReponseConfigurationNotifications> = match collection_configuration.find_one(doc! {"config_key": "notifications"}, None).await? {
+    //     Some(d) => Some(convertir_bson_deserializable(d)?),
+    //     None => None
+    // };
     let configuration_cle_webpush: Option<TransactionCleWebpush> = match collection_configuration.find_one(doc! {"config_key": "cle_webpush"}, None).await? {
         Some(c) => Some(convertir_bson_deserializable(c)?),
         None => None
@@ -968,44 +971,81 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
 
     // Conserver hachage_bytes pour recuperer cles de dechiffrage
     let mut data_chiffre = Vec::new();
-    if let Some(e) = profil_usager.email_chiffre {
-        data_chiffre.push(e);
-    }
-    if let Some(c) = configuration_notifications.as_ref() {
-        if let Some(s) = c.smtp.as_ref() {
-            data_chiffre.push(s.chiffre.to_owned());
-        }
-    }
-    if let Some(inner) = configuration_cle_webpush.as_ref() {
-        data_chiffre.push(inner.data_chiffre.to_owned());
-    }
-
-    // Demander cles de dechiffrage
-    // let requete_cles = json!({MAITREDESCLES_CHAMP_LISTE_HACHAGE_BYTES: hachage_bytes, TRANSACTION_CHAMP_DOMAINE: DOMAINE_NOM});
-    // let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, REQUETE_DECHIFFRAGE)
-    //     .exchanges(vec![L3Protege])
-    //     .build();
-    // debug!("generer_notification_usager Requete cles config notifications : {:?}", requete_cles);
-    // let reponse_cles = middleware.transmettre_requete(routage, &requete_cles).await?;
-    // debug!("generer_notification_usager Reponse cles dechiffrer config notifications : {:?}", reponse_cles);
-
-    let data_dechiffre = dechiffrer_documents(middleware, data_chiffre).await?;
-
-    for d in data_dechiffre {
-        let data_string = String::from_utf8(d.data_dechiffre)?;
-        debug!("Data dechiffre {:?} : {}", d.ref_hachage_bytes, data_string);
-    }
-
-    todo!("fix me");
-
-    let email: Option<String> = match profil_usager.email_chiffre.as_ref() {
+    let hachage_bytes_email = match profil_usager.email_chiffre {
         Some(e) => {
-            debug!("Dechiffrer adresse email de l'usager");
-            None
+            let hachage = e.ref_hachage_bytes.clone();
+            data_chiffre.push(e);
+            hachage
+        },
+        None => None
+    };
+    let hachage_bytes_webpush = match configuration_cle_webpush.as_ref() {
+        Some(inner) => {
+            let hachage = inner.data_chiffre.ref_hachage_bytes.clone();
+            data_chiffre.push(inner.data_chiffre.to_owned());
+            hachage
         },
         None => None
     };
 
+    // Demander cles de dechiffrage
+    let data_dechiffre = dechiffrer_documents(middleware, data_chiffre).await?;
+
+    let mut mapping_dechiffre = HashMap::new();
+    for d in data_dechiffre {
+        let data_string = String::from_utf8(d.data_dechiffre)?;
+        debug!("Data dechiffre {:?} : {}", d.ref_hachage_bytes, data_string);
+        if let Some(h) = d.ref_hachage_bytes {
+            mapping_dechiffre.insert(h, serde_json::from_str::<Value>(data_string.as_str())?);
+        }
+    }
+
+    let body = String::from("Notifications millegrilles");
+
+    let (email_adresse, email_title, email_body) = match hachage_bytes_email {
+        Some(inner) => {
+            if let Some(inner) = mapping_dechiffre.remove(inner.as_str()) {
+                let value: ProfilUsagerDechiffre = serde_json::from_value(inner)?;
+                (value.email_adresse, Some(String::from("MilleGrilles")), Some(body.clone()))
+            } else {
+                (None, None, None)
+            }
+        },
+        None => (None, None, None)
+    };
+
+    let webpush_payload = match profil_usager.webpush_subscriptions.is_some() {
+        true => {
+            match hachage_bytes_webpush {
+                Some(inner) => {
+                    match mapping_dechiffre.remove(inner.as_str()) {
+                        Some(inner) => {
+                            let value: WebpushConfigurationClePrivee = serde_json::from_value(inner)?;
+                            Some(vec![String::from("DUMMY webpush")])
+                        },
+                        None => None
+                    }
+                },
+                None => None
+            }
+        },
+        false => None
+    };
+
+    let notification = NotificationOutgoingPostmaster {
+        user_id: user_id.to_owned(),
+        email_adresse,
+        email_title,
+        email_body,
+        webpush_payload,
+    };
+
+    let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, COMMANDE_POST_NOTIFICATION)
+        .exchanges(vec![Securite::L1Public])
+        .build();
+    middleware.transmettre_commande(routage, &notification, false).await?;
+
+    Ok(())
 }
 
 async fn commande_sauvegarder_usager_config_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)

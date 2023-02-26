@@ -569,3 +569,22 @@ pub struct ReponseConfigurationNotifications {
     pub webpush: Option<ConfigurationNotificationsWebpush>,
     pub webpush_public_key: Option<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProfilUsagerDechiffre {
+    pub email_adresse: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NotificationOutgoingPostmaster {
+    pub user_id: String,
+    pub email_adresse: Option<String>,
+    pub email_title: Option<String>,
+    pub email_body: Option<String>,
+    pub webpush_payload: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WebpushConfigurationClePrivee {
+    cle_privee_pem: Option<String>,
+}
