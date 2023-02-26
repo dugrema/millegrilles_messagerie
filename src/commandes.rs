@@ -32,6 +32,7 @@ use millegrilles_common_rust::openssl::pkey::{PKey, Private};
 use millegrilles_common_rust::openssl::bn::BigNumContext;
 use millegrilles_common_rust::openssl::nid::Nid;
 use millegrilles_common_rust::openssl::ec::{EcGroup, EcKey, PointConversionForm};
+use millegrilles_common_rust::dechiffrage::dechiffrer_documents;
 
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
@@ -966,33 +967,34 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
     };
 
     // Conserver hachage_bytes pour recuperer cles de dechiffrage
-    let mut hachage_bytes = Vec::new();
-    if let Some(e) = profil_usager.email_chiffre.as_ref() {
-        if let Some(h) = e.ref_hachage_bytes.as_ref() {
-            hachage_bytes.push(h.as_str());
-        }
+    let mut data_chiffre = Vec::new();
+    if let Some(e) = profil_usager.email_chiffre {
+        data_chiffre.push(e);
     }
-    if let Some(c) = &configuration_notifications {
+    if let Some(c) = configuration_notifications.as_ref() {
         if let Some(s) = c.smtp.as_ref() {
-            if let Some(h) = s.chiffre.ref_hachage_bytes.as_ref() {
-                hachage_bytes.push(h.as_str());
-            }
+            data_chiffre.push(s.chiffre.to_owned());
         }
     }
-    if let Some(inner) = &configuration_cle_webpush {
-        if let Some(inner) = inner.data_chiffre.ref_hachage_bytes.as_ref() {
-            hachage_bytes.push(inner.as_str());
-        }
+    if let Some(inner) = configuration_cle_webpush.as_ref() {
+        data_chiffre.push(inner.data_chiffre.to_owned());
     }
 
     // Demander cles de dechiffrage
-    let requete_cles = json!({MAITREDESCLES_CHAMP_LISTE_HACHAGE_BYTES: hachage_bytes, TRANSACTION_CHAMP_DOMAINE: DOMAINE_NOM});
-    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, REQUETE_DECHIFFRAGE)
-        .exchanges(vec![L3Protege])
-        .build();
-    debug!("generer_notification_usager Requete cles config notifications : {:?}", requete_cles);
-    let reponse_cles = middleware.transmettre_requete(routage, &requete_cles).await?;
-    debug!("generer_notification_usager Reponse cles dechiffrer config notifications : {:?}", reponse_cles);
+    // let requete_cles = json!({MAITREDESCLES_CHAMP_LISTE_HACHAGE_BYTES: hachage_bytes, TRANSACTION_CHAMP_DOMAINE: DOMAINE_NOM});
+    // let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, REQUETE_DECHIFFRAGE)
+    //     .exchanges(vec![L3Protege])
+    //     .build();
+    // debug!("generer_notification_usager Requete cles config notifications : {:?}", requete_cles);
+    // let reponse_cles = middleware.transmettre_requete(routage, &requete_cles).await?;
+    // debug!("generer_notification_usager Reponse cles dechiffrer config notifications : {:?}", reponse_cles);
+
+    let data_dechiffre = dechiffrer_documents(middleware, data_chiffre).await?;
+
+    for d in data_dechiffre {
+        let data_string = String::from_utf8(d.data_dechiffre)?;
+        debug!("Data dechiffre {:?} : {}", d.ref_hachage_bytes, data_string);
+    }
 
     todo!("fix me");
 
