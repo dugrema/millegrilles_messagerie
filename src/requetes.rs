@@ -758,6 +758,23 @@ async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageVa
         None => debug!("Aucune configuration web push presente")
     };
 
+    if let Some(true) = requete.inclure_cles {
+        // Verifier si le certificat est celui du postmaster
+        if let Some(inner) = m.message.certificat {
+            if inner.verifier_roles(vec![RolesCertificats::Postmaster]) {
+                debug!("Recuperer les cles de dechiffrage de la configuration de notifications");
+                if let Some(inner) = &configuration.smtp {
+                    if let Some(ref_hachage_bytes) = &inner.chiffre.ref_hachage_bytes {
+                        let requete = json!({
+                            MAITREDESCLES_CHAMP_LISTE_HACHAGE_BYTES: vec![ref_hachage_bytes],
+                            "certificat_rechiffrage";
+                        })
+                    }
+                }
+            }
+        }
+    }
+
     Ok(Some(middleware.formatter_reponse(&configuration, None)?))
 }
 
