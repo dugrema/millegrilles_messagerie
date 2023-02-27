@@ -540,11 +540,6 @@ pub struct TransactionSauvegarderSubscriptionWebpush {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransactionRetirerSubscriptionWebpush {
-    pub endpoint: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProfilUsagerNotifications {
     pub cle_ref_hachage_bytes: String,
     pub email_actif: Option<bool>,

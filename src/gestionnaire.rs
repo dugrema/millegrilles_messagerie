@@ -217,7 +217,6 @@ pub fn preparer_queues() -> Vec<QueueType> {
         TRANSACTION_SUPPRIMER_CONTACTS,
         TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS,
         TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH,
-        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH,
     ];
     for cmd in commandes_privees {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L2Prive});
@@ -227,6 +226,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
         COMMANDE_CONFIRMER_TRANSMISSION,
         COMMANDE_PROCHAIN_ATTACHMENT,
         COMMANDE_UPLOAD_ATTACHMENT,
+        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH,
     ];
     for cmd in commandes_publiques {
         rk_volatils.push(ConfigRoutingExchange {routing_key: format!("commande.{}.{}", DOMAINE_NOM, cmd), exchange: Securite::L1Public});

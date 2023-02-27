@@ -10,6 +10,7 @@ use millegrilles_common_rust::bson::{Array, Bson};
 use millegrilles_common_rust::bson::serde_helpers::deserialize_chrono_datetime_from_bson_datetime;
 use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chrono::{DateTime, Utc};
+use millegrilles_common_rust::common_messages::TransactionRetirerSubscriptionWebpush;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::{L2Prive, L4Secure};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
@@ -1239,18 +1240,24 @@ async fn retirer_subscription_webpush<M, T>(gestionnaire: &GestionnaireMessageri
         M: GenerateurMessages + MongoDao + ValidateurX509,
         T: Transaction
 {
+    debug!("retirer_subscription_webpush Consommer transaction : {:?}", &transaction);
+    let transaction_mappee = match transaction.clone().convertir::<TransactionRetirerSubscriptionWebpush>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.retirer_subscription_webpush Erreur conversion transaction : {:?}", e))?
+    };
+
     let user_id = match &transaction.get_enveloppe_certificat() {
         Some(c) => match c.get_user_id()? {
             Some(u) => u.to_owned(),
-            None => Err(format!("Certificat sans user_id"))?
+            None => match c.verifier_roles(vec![RolesCertificats::Postmaster]) {
+                true => match transaction_mappee.user_id.as_ref() {
+                    Some(inner) => inner.to_owned(),
+                    None => Err(format!("transactions.retirer_subscription_webpush Aucun user_id fourni par postmaster"))?
+                },
+                false => Err(format!("transactions.retirer_subscription_webpush Certificat sans user_id ou role != postmaster"))?
+            }
         },
         None => Err(format!("Certificat sans user_id"))?
-    };
-
-    debug!("retirer_subscription_webpush Consommer transaction : {:?}", &transaction);
-    let transaction_mappee = match transaction.convertir::<TransactionRetirerSubscriptionWebpush>() {
-        Ok(t) => t,
-        Err(e) => Err(format!("transactions.retirer_subscription_webpush Erreur conversion transaction : {:?}", e))?
     };
 
     let filtre = doc!{ CHAMP_USER_ID: &user_id };

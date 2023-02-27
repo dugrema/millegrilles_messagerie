@@ -12,7 +12,7 @@ use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509,
 use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
-use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre};
+use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, TransactionRetirerSubscriptionWebpush};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::{L2Prive, L3Protege};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
@@ -1124,8 +1124,15 @@ async fn commande_retirer_subscription_webpush<M>(middleware: &M, m: MessageVali
     // Verifier que le certificat a un user_id
     match &m.message.certificat {
         Some(c) => {
-            if c.get_user_id()?.is_none() {
-                Err(format!("commandes.commande_retirer_subscription_webpush User_id manquant"))?
+            match c.get_user_id()? {
+                Some(_) => (),  // Ok
+                None => match c.verifier_roles(vec![RolesCertificats::Postmaster]) {
+                    true => match commande.user_id.as_ref() {
+                        Some(_) => (), // Ok
+                        None => Err(format!("transactions.retirer_subscription_webpush Aucun user_id fourni par postmaster"))?
+                    },
+                    false => Err(format!("transactions.retirer_subscription_webpush Certificat sans user_id ou role != postmaster"))?
+                }
             }
         },
         None => Err(format!("commandes.commande_retirer_subscription_webpush User_id manquant"))?
