@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use log::debug;
-use millegrilles_common_rust::chiffrage_cle::{CommandeSauvegarderCle, MetaInformationCle, ReponseDechiffrageCles};
+use millegrilles_common_rust::chiffrage_cle::{CommandeSauvegarderCle, InformationCle, MetaInformationCle, ReponseDechiffrageCles};
 
 use millegrilles_common_rust::chrono;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
@@ -571,6 +571,7 @@ pub struct ReponseConfigurationNotifications {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webpush: Option<ConfigurationNotificationsWebpush>,
     pub webpush_public_key: Option<String>,
+    pub cles: Option<HashMap<String, InformationCle>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

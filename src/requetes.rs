@@ -11,6 +11,7 @@ use millegrilles_common_rust::certificats::{ValidateurX509, VerificateurPermissi
 use millegrilles_common_rust::chiffrage_cle::ReponseDechiffrageCles;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::constantes::*;
+use millegrilles_common_rust::dechiffrage::get_cles_rechiffrees;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::sauvegarder_traiter_transaction;
@@ -39,7 +40,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
 
     if role_prive && user_id.is_some() {
         // Ok, commande usager
-    } else if message.verifier_exchanges(vec![Securite::L2Prive, Securite::L3Protege]) {
+    } else if message.verifier_exchanges(vec![Securite::L1Public, Securite::L2Prive, Securite::L3Protege]) {
         // Autorisation : On accepte les requetes de 3.protege ou 4.secure
         // Ok
     } else if message.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
@@ -760,15 +761,15 @@ async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageVa
 
     if let Some(true) = requete.inclure_cles {
         // Verifier si le certificat est celui du postmaster
-        if let Some(inner) = m.message.certificat {
-            if inner.verifier_roles(vec![RolesCertificats::Postmaster]) {
+        if let Some(certificat) = m.message.certificat {
+            if certificat.verifier_roles(vec![RolesCertificats::Postmaster]) {
                 debug!("Recuperer les cles de dechiffrage de la configuration de notifications");
                 if let Some(inner) = &configuration.smtp {
                     if let Some(ref_hachage_bytes) = &inner.chiffre.ref_hachage_bytes {
-                        let requete = json!({
-                            MAITREDESCLES_CHAMP_LISTE_HACHAGE_BYTES: vec![ref_hachage_bytes],
-                            "certificat_rechiffrage";
-                        })
+                        let cles = get_cles_rechiffrees(
+                            middleware, &vec![ref_hachage_bytes.as_str()], Some(certificat.as_ref())).await?;
+                        debug!("Reponse cles dechiffrage configuration : {:?}", cles);
+                        configuration.cles = cles.cles;
                     }
                 }
             }
