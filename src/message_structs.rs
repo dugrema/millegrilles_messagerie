@@ -156,7 +156,7 @@ pub struct ReponseUseridParNomUsager {
 pub struct RequeteGetMessages {
     pub limit: Option<i64>,
     pub skip: Option<u64>,
-    // pub uuid_messages: Option<Vec<String>>,
+    pub uuid_messages: Option<Vec<String>>,
     pub uuid_transactions: Option<Vec<String>>,
     pub messages_envoyes: Option<bool>,
 }
@@ -554,7 +554,7 @@ pub struct UsagerNotificationsOutgoing {
     pub derniere_notification: DateTime<Utc>,
     #[serde(deserialize_with="deserialize_chrono_datetime_from_bson_datetime")]
     pub expiration_lock_notifications: DateTime<Utc>,
-    pub uuid_messages_notifications: Option<Vec<String>>,
+    pub uuid_transactions_notifications: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -632,7 +632,7 @@ pub struct WebpushConfigurationClePrivee {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EmailNotification {
-    pub adress: String,
+    pub address: String,
     pub title: String,
     pub body: String,
 }

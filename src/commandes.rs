@@ -916,7 +916,7 @@ async fn emettre_notifications_usager<M>(middleware: &M, m: MessageValideAction,
         "$set": {
             CHAMP_NOTIFICATIONS_PENDING: false,
             CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: Utc::now() + Duration::seconds(60),
-            CHAMP_UUID_MESSAGES_NOTIFICATIONS: [],  // Vider notifications
+            CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: [],  // Vider notifications
         },
         "$currentDate": { CHAMP_MODIFICATION: true },
     };
@@ -995,32 +995,18 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
         }
     }
 
-    let title = String::from("MilleGrilles");
-    let body = String::from("Notifications millegrilles");
-    let email_from = match &configuration_notifications {
-        Some(inner) => match inner.email_from.as_ref() {
-            Some(inner) => inner.to_owned(),
-            None => String::from("no-reply@millegrilles.com")
-        },
-        None => String::from("no-reply@millegrilles.com")
-    };
-    let icon = match &configuration_notifications {
-        Some(inner) => match inner.webpush.as_ref() {
-            Some(inner) => inner.icon.as_ref(),
-            None => None,
-        },
-        None => None,
-    };
+    let contenu_notification = generer_contenu_notification(
+        middleware, configuration_notifications.as_ref(), &notifications).await?;
 
     let email_info = match hachage_bytes_email {
         Some(inner) => {
             if let Some(inner) = mapping_dechiffre.remove(inner.as_str()) {
                 let value: ProfilUsagerDechiffre = serde_json::from_value(inner)?;
-                if let Some(a) = value.email_adresse {
+                if let Some(adresse_email) = value.email_adresse {
                     Some(EmailNotification {
-                        adress: a,
-                        title: title.clone(),
-                        body: body.clone(),
+                        address: adresse_email,
+                        title: contenu_notification.title.clone(),
+                        body: contenu_notification.body_email,
                     })
                 } else {
                     None
@@ -1045,17 +1031,17 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
                                     let mut messages = Vec::new();
 
                                     let body_json = json!({
-                                        "title": &title,
+                                        "title": &contenu_notification.title,
                                         "body": true,
                                         "payload": {
-                                            "title": &title,
-                                            "body": &body,
-                                            "url": "https://mg-dev1.maple.maceroc.com",
-                                            "icon": icon,
+                                            "title": &contenu_notification.title,
+                                            "body": &contenu_notification.body_webpush,
+                                            // "url": "https://mg-dev1.maple.maceroc.com",
+                                            "icon": contenu_notification.icon,
                                         }
                                     });
                                     let body_json = serde_json::to_string(&body_json)?;
-                                    let vapid_sub = format!("mailto:{}", email_from);
+                                    let vapid_sub = format!("mailto:{}", contenu_notification.email_from);
 
                                     for (_, s) in subscriptions {
                                         let subscription_info = SubscriptionInfo::new(s.endpoint, s.keys_p256dh, s.keys_auth);
@@ -1107,6 +1093,55 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
     middleware.transmettre_commande(routage, &notification, false).await?;
 
     Ok(())
+}
+
+struct ContenuNotification {
+    email_from: String,
+    title: String,
+    body_email: String,
+    body_webpush: String,
+    icon: Option<String>,
+}
+
+async fn generer_contenu_notification<M>(
+    middleware: &M,
+    configuration_notifications: Option<&ReponseConfigurationNotifications>,
+    notifications: &UsagerNotificationsOutgoing
+)
+    -> Result<ContenuNotification, Box<dyn Error>>
+    where M: GenerateurMessages
+{
+    let nombre_notifications = match notifications.uuid_transactions_notifications.as_ref() {
+        Some(inner) => inner.len(),
+        None => 0
+    };
+    let title = format!("{} nouveaux messages recus", nombre_notifications);
+    let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+
+    let email_from = match &configuration_notifications {
+        Some(inner) => match inner.email_from.as_ref() {
+            Some(inner) => inner.to_owned(),
+            None => String::from("no-reply@millegrilles.com")
+        },
+        None => String::from("no-reply@millegrilles.com")
+    };
+
+    let icon = match &configuration_notifications {
+        Some(inner) => match inner.webpush.as_ref() {
+            Some(inner) => inner.icon.to_owned(),
+            None => None,
+        },
+        None => None,
+    };
+
+    Ok(ContenuNotification {
+        email_from,
+        title,
+        body_email,
+        body_webpush,
+        icon,
+    })
 }
 
 async fn commande_sauvegarder_usager_config_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)

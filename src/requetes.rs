@@ -123,6 +123,10 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
         filtre.insert("uuid_transaction", doc!{"$in": um});
     }
 
+    if let Some(um) = requete.uuid_messages {
+        filtre.insert("uuid_messages", doc!{"$in": um});
+    }
+
     debug!("requete_get_messages Filtre {:?}", filtre);
 
     let collection = middleware.get_collection(nom_collection)?;

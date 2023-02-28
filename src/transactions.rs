@@ -540,7 +540,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     }
 
     if let Err(e) = emettre_notifications(
-        middleware, &reponse_mappee.usagers, uuid_message.as_str(), uuid_transaction.as_str()).await {
+        middleware, &reponse_mappee.usagers, uuid_transaction.as_str(), uuid_message.as_str()).await {
         warn!("transaction_recevoir Erreur emission notifications : {:?}", e);
     }
 
@@ -601,7 +601,7 @@ async fn ajouter_notification_usager<M>(middleware: &M, user_id: &str, uuid_tran
     };
 
     let push_ops = doc! {
-        CHAMP_UUID_MESSAGES_NOTIFICATIONS: uuid_message
+        CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: uuid_transaction,
     };
 
     let ops = doc! {
