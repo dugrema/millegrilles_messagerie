@@ -34,7 +34,7 @@ use millegrilles_common_rust::openssl::nid::Nid;
 use millegrilles_common_rust::openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use millegrilles_common_rust::dechiffrage::dechiffrer_documents;
 use millegrilles_common_rust::serde_json::Value;
-use web_push::{ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushMessageBuilder};
+use web_push::{ContentEncoding, PartialVapidSignatureBuilder, SubscriptionInfo, VapidSignatureBuilder, WebPushClient, WebPushMessageBuilder};
 
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
@@ -810,25 +810,18 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
     let commande: CommandeGenererClewebpushNotifications = m.message.get_msg().map_contenu(None)?;
     debug!("generer_clewebpush_notifications parsed : {:?}", commande);
 
-    // let nouvelle_cle = Dh::get_2048_256()?.generate_key()?;
-    // let pem_prive = nouvelle_cle.params_to_pem()?;
-
     let nid = Nid::X9_62_PRIME256V1; // NIST P-256 curve
     let group = EcGroup::from_curve_name(nid)?;
     let key = EcKey::generate(&group)?;
-    // let mut ctx = BigNumContext::new()?;
-
-    // let nouvelle_cle = PKey::ec_gen("prime256v1")?;
     let pem_prive = String::from_utf8(key.private_key_to_pem()?)?;
-
     let pem_public = String::from_utf8(key.public_key_to_pem()?)?;
 
-    debug!("PEM PRIVE cle notification : \n{}\n{}", pem_prive, pem_public);
+    // Encoder public key URL-safe pour navigateur
+    let vapid_builder = VapidSignatureBuilder::from_pem_no_sub(pem_prive.as_bytes())?;
+    let public_bytes = vapid_builder.get_public_key();
+    let public_key_str = general_purpose::URL_SAFE.encode(public_bytes);
 
-    let public_bytes = key.public_key_to_der()?;
-    // Garder les 65 derniers bytes uniquement
-    let public_bytes_key = &public_bytes[public_bytes.len()-65..];
-    let public_key_str = general_purpose::URL_SAFE.encode(public_bytes_key);
+    debug!("PEM PRIVE cle notification : \n{}\n{:?}", pem_prive, public_key_str);
 
     let data_dechiffre = json!({"cle_privee_pem": &pem_prive});
     let data_dechiffre_string = serde_json::to_string(&data_dechiffre)?;
@@ -1027,14 +1020,26 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
                                 Some(cle) => {
                                     let mut messages = Vec::new();
 
+                                    let body = String::from("{\"title\": \"Un test\", \"body\":true, \"payload\":{\"title\": \"Un titre\"}}");
+
                                     for (_, s) in subscriptions {
                                         let subscription_info = SubscriptionInfo::new(s.endpoint, s.keys_p256dh, s.keys_auth);
-                                        let mut sig_builder = VapidSignatureBuilder::from_pem(cle.as_bytes(), &subscription_info)?.build()?;
+                                        let mut sig_builder = VapidSignatureBuilder::from_pem(cle.as_bytes(), &subscription_info)?;
+                                        sig_builder.add_claim("sub", "mailto:md.accounts1@mdugre.info");
+
                                         let mut builder = WebPushMessageBuilder::new(&subscription_info)?;
+                                        builder.set_ttl(0);
                                         let content = body.as_bytes();
                                         builder.set_payload(ContentEncoding::Aes128Gcm, content);
-                                        builder.set_vapid_signature(sig_builder);
+                                        builder.set_vapid_signature(sig_builder.build()?);
+
                                         let message = builder.build()?;
+                                        debug!("Message web push : {:?}", message);
+
+                                        // let client = WebPushClient::new()?;
+                                        // if let Err(e) = client.send(message).await {
+                                        //     error!("Erreur web push : {:?}", e);
+                                        // }
 
                                         let postmaster_message = PostmasterWebPushMessage::try_from(message)?;
 
