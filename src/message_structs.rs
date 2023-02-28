@@ -621,13 +621,18 @@ impl TryFrom<WebPushMessage> for PostmasterWebPushMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NotificationOutgoingPostmaster {
     pub user_id: String,
-    pub email_adresse: Option<String>,
-    pub email_title: Option<String>,
-    pub email_body: Option<String>,
-    pub webpush_payload: Option<Vec<PostmasterWebPushMessage>>,
+    pub email: Option<EmailNotification>,
+    pub webpush: Option<Vec<PostmasterWebPushMessage>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WebpushConfigurationClePrivee {
     pub cle_privee_pem: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EmailNotification {
+    pub adress: String,
+    pub title: String,
+    pub body: String,
 }

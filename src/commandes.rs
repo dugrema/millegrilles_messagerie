@@ -43,6 +43,7 @@ use crate::message_structs::*;
 use crate::pompe_messages::{marquer_outgoing_resultat, verifier_fin_transferts_attachments};
 
 const REQUETE_MAITREDESCLES_VERIFIER_PREUVE: &str = "verifierPreuve";
+const WEBPUSH_TTL: u32 = 12 * 3600;
 
 pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
@@ -954,10 +955,10 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
 
     // Charger configuration smtp, web push
     let collection_configuration = middleware.get_collection(NOM_COLLECTION_CONFIGURATION)?;
-    // let configuration_notifications: Option<ReponseConfigurationNotifications> = match collection_configuration.find_one(doc! {"config_key": "notifications"}, None).await? {
-    //     Some(d) => Some(convertir_bson_deserializable(d)?),
-    //     None => None
-    // };
+    let configuration_notifications: Option<ReponseConfigurationNotifications> = match collection_configuration.find_one(doc! {"config_key": "notifications"}, None).await? {
+        Some(d) => Some(convertir_bson_deserializable(d)?),
+        None => None
+    };
     let configuration_cle_webpush: Option<TransactionCleWebpush> = match collection_configuration.find_one(doc! {"config_key": "cle_webpush"}, None).await? {
         Some(c) => Some(convertir_bson_deserializable(c)?),
         None => None
@@ -994,18 +995,41 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
         }
     }
 
+    let title = String::from("MilleGrilles");
     let body = String::from("Notifications millegrilles");
+    let email_from = match &configuration_notifications {
+        Some(inner) => match inner.email_from.as_ref() {
+            Some(inner) => inner.to_owned(),
+            None => String::from("no-reply@millegrilles.com")
+        },
+        None => String::from("no-reply@millegrilles.com")
+    };
+    let icon = match &configuration_notifications {
+        Some(inner) => match inner.webpush.as_ref() {
+            Some(inner) => inner.icon.as_ref(),
+            None => None,
+        },
+        None => None,
+    };
 
-    let (email_adresse, email_title, email_body) = match hachage_bytes_email {
+    let email_info = match hachage_bytes_email {
         Some(inner) => {
             if let Some(inner) = mapping_dechiffre.remove(inner.as_str()) {
                 let value: ProfilUsagerDechiffre = serde_json::from_value(inner)?;
-                (value.email_adresse, Some(String::from("MilleGrilles")), Some(body.clone()))
+                if let Some(a) = value.email_adresse {
+                    Some(EmailNotification {
+                        adress: a,
+                        title: title.clone(),
+                        body: body.clone(),
+                    })
+                } else {
+                    None
+                }
             } else {
-                (None, None, None)
+                None
             }
         },
-        None => (None, None, None)
+        None => None
     };
 
     let webpush_payload = match profil_usager.webpush_subscriptions {
@@ -1020,16 +1044,27 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
                                 Some(cle) => {
                                     let mut messages = Vec::new();
 
-                                    let body = String::from("{\"title\": \"Un test\", \"body\":true, \"payload\":{\"title\": \"Un titre\"}}");
+                                    let body_json = json!({
+                                        "title": &title,
+                                        "body": true,
+                                        "payload": {
+                                            "title": &title,
+                                            "body": &body,
+                                            "url": "https://mg-dev1.maple.maceroc.com",
+                                            "icon": icon,
+                                        }
+                                    });
+                                    let body_json = serde_json::to_string(&body_json)?;
+                                    let vapid_sub = format!("mailto:{}", email_from);
 
                                     for (_, s) in subscriptions {
                                         let subscription_info = SubscriptionInfo::new(s.endpoint, s.keys_p256dh, s.keys_auth);
                                         let mut sig_builder = VapidSignatureBuilder::from_pem(cle.as_bytes(), &subscription_info)?;
-                                        sig_builder.add_claim("sub", "mailto:md.accounts1@mdugre.info");
+                                        sig_builder.add_claim("sub", vapid_sub.as_str());
 
                                         let mut builder = WebPushMessageBuilder::new(&subscription_info)?;
-                                        builder.set_ttl(0);
-                                        let content = body.as_bytes();
+                                        builder.set_ttl(WEBPUSH_TTL);
+                                        let content = body_json.as_bytes();
                                         builder.set_payload(ContentEncoding::Aes128Gcm, content);
                                         builder.set_vapid_signature(sig_builder.build()?);
 
@@ -1062,10 +1097,8 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
 
     let notification = NotificationOutgoingPostmaster {
         user_id: user_id.to_owned(),
-        email_adresse,
-        email_title,
-        email_body,
-        webpush_payload,
+        email: email_info,
+        webpush: webpush_payload,
     };
 
     let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, COMMANDE_POST_NOTIFICATION)
