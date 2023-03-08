@@ -748,7 +748,7 @@ async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageVa
     let mut configuration: ReponseConfigurationNotifications = match collection.find_one(filtre, None).await? {
         Some(d) => convertir_bson_deserializable(d)?,
         None => {
-            let reponse = json!({"ok": false, "err": "Configuration absente"});
+            let reponse = json!({"ok": true, "message": "Configuration absente"});
             return Ok(Some(middleware.formatter_reponse(&reponse, None)?))
         }
     };
