@@ -118,3 +118,5 @@ pub const CODE_UPLOAD_ERREUR: u32 = 4;
 
 pub const CONST_ADRESSE_SEPARATEUR_HOST: &str = ":";
 pub const CONST_ADRESSE_PREFIXE_USAGER: &str = "@";
+
+pub const CONST_EXPIRATION_NOTIFICATION_DEFAUT: i64 = 7 * 24 * 60 * 60;

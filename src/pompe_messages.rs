@@ -764,12 +764,12 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     }?;
 
     // Recuperer cle du message
-    let hachage_bytes = vec![message_mappe.message.hachage_bytes.clone()];
+    let hachage_bytes = vec![message_mappe.message.get_ref_cle()?.to_owned()];
     let cle_message = requete_charger_cles(middleware, &hachage_bytes).await?;
     debug!("Recu cle message rechiffree : {:?}", cle_message);
     let cle_message_info = match &cle_message.cles {
         Some(c) => {
-            match c.get(message_mappe.message.hachage_bytes.as_str()) {
+            match c.get(message_mappe.message.get_ref_cle()?) {
                 Some(c) => Ok(c),
                 None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante dans reponse MaitreDesCles pour message {}", uuid_message))
             }

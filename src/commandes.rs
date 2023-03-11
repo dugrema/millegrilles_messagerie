@@ -15,7 +15,7 @@ use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
 use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, TransactionRetirerSubscriptionWebpush};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::{L2Prive, L3Protege};
-use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
@@ -1223,6 +1223,13 @@ async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnai
     let commande: CommandeRecevoir = m.message.get_msg().map_contenu(None)?;
     debug!("commande_notifier parsed : {:?}", commande);
 
+    let entete = m.message.get_entete();
+
+    let enveloppe = match m.message.certificat.as_ref() {
+        Some(e) => e.as_ref(),
+        None => Err(format!("Erreur chargement certificat"))?
+    };
+
     // Verifier que le certificat a un exchange ou user_id
     match &m.message.certificat {
         Some(c) => {
@@ -1238,29 +1245,58 @@ async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnai
     }
 
     // Sauvegarder la cle au besoin
-    if let Some(cle) = commande.cle {
+    if let Some(cle) = commande.cle.as_ref() {
         if let Some(partition) = cle.entete.partition.as_ref() {
             debug!("Sauvegarder cle de notification avec partition {}", partition);
             let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
                 .exchanges(vec![Securite::L3Protege])
                 .partition(partition)
                 .build();
-            middleware.transmettre_commande(routage, &cle, true).await?;
+            middleware.transmettre_commande(routage, cle, true).await?;
         }
     }
+
+    // Determiner les destinataires
+    let (destinataires, expiration) = match &commande.destinataires {
+        Some(d) => (d.clone(), commande.expiration.clone()),
+        None => {
+            // Forcer expiration de la notification (volatile)
+            let expiration = match commande.expiration {
+                Some(e) => Some(e),
+                None => Some(CONST_EXPIRATION_NOTIFICATION_DEFAUT)
+            };
+            // Charger la liste des proprietaires (requete a MaitreDesComptes)
+            (vec!["zABCD1234".to_string()], expiration)
+        }
+    };
 
     // Verifier si la notification est volatile (avec expiration).
     // Les notifications volatiles ne sont pas sauvegardees via transaction.
     match &commande.expiration {
         Some(e) => {
             debug!("Sauvegarder notification volatile, expiration {}", e);
+            recevoir_notification(middleware, &commande, entete, enveloppe, destinataires).await?;
             Ok(middleware.reponse_ok()?)
         },
         None => {
-            // Notification sans expiration, sauvegarder sous forme de transaction
-            debug!("Sauvegarder notification sans expiration");
+            // Notification non volatile (avec destinataires, sans expiration)
+            // sauvegarder sous forme de transaction
+            debug!("Sauvegarder notification avec destinataires, sans expiration");
             Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
         }
     }
+}
 
+async fn recevoir_notification<M>(
+    middleware: &M,
+    notification: &CommandeRecevoir,
+    entete: &Entete,
+    enveloppe: &EnveloppeCertificat,
+    destinataires: Vec<String>
+)
+    -> Result<(), Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509
+{
+    debug!("recevoir_notification {:?} de {:?} pour {:?}", notification, enveloppe, destinataires);
+    todo!("fix me")
 }

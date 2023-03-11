@@ -120,10 +120,25 @@ pub struct DocumentMessage {
     pub message_chiffre: String,
     pub attachments: Option<Vec<String>>,
     pub fingerprint_certificat: String,
-    pub hachage_bytes: String,
+    pub hachage_bytes: Option<String>,
+    pub ref_hachage_bytes: Option<String>,
 
     #[serde(rename = "en-tete", skip_serializing)]
     pub entete: Option<Entete>
+}
+
+impl DocumentMessage {
+    pub fn get_ref_cle(&'_ self) -> Result<&'_ str, String> {
+        match self.ref_hachage_bytes.as_ref() {
+            Some(r) => Ok(r.as_str()),
+            None => {
+                match self.hachage_bytes.as_ref() {
+                    Some(h) => Ok(h.as_str()),
+                    None => Err(format!("DocumentMessage.get_ref_cle (ref_)hachage_bytes manquant"))?
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -180,7 +195,8 @@ pub struct MessageIncoming {
     pub date_reception: Option<DateEpochSeconds>,
     pub date_envoi: Option<DateEpochSeconds>,
     pub message_chiffre: String,
-    pub hachage_bytes: String,
+    pub hachage_bytes: Option<String>,
+    pub ref_hachage_bytes: Option<String>,
     pub certificat_message: Option<Vec<String>>,
     pub certificat_millegrille: Option<String>,
     pub attachments: Option<HashMap<String, bool>>,
@@ -223,8 +239,23 @@ pub struct ParametresGetPermissionMessages {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingProjectionPermission {
     pub uuid_transaction: String,
-    pub hachage_bytes: String,
+    pub hachage_bytes: Option<String>,
+    pub ref_hachage_bytes: Option<String>,
     pub attachments: Option<HashMap<String, bool>>,
+}
+
+impl MessageIncomingProjectionPermission {
+    pub fn get_ref_cle(&'_ self) -> Result<&'_ str, String> {
+        match self.ref_hachage_bytes.as_ref() {
+            Some(r) => Ok(r.as_str()),
+            None => {
+                match self.hachage_bytes.as_ref() {
+                    Some(h) => Ok(h.as_str()),
+                    None => Err(format!("MessageIncomingProjectionPermission.get_ref_cle (ref_)hachage_bytes manquant"))?
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -640,8 +671,9 @@ pub struct EmailNotification {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocumentNotification {
     pub message_chiffre: String,
-    pub niveau: String,
     pub attachments: Option<Vec<String>>,
+    pub niveau: String,
+
     // Information de dechiffrage
     pub format: String,
     pub ref_hachage_bytes: String,
@@ -652,8 +684,9 @@ pub struct DocumentNotification {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeRecevoir {
     pub destinataires: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expiration: Option<i64>,
     pub message: DocumentNotification,
-    #[serde(rename="_cle")]
+    #[serde(rename="_cle", skip_serializing)]
     pub cle: Option<MessageMilleGrille>,
 }

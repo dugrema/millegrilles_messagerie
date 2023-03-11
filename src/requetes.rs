@@ -349,7 +349,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
             },
             false => {
                 let doc_message_incoming: MessageIncomingProjectionPermission = convertir_bson_deserializable(doc_result)?;
-                hachage_bytes.insert(doc_message_incoming.hachage_bytes);
+                hachage_bytes.insert(doc_message_incoming.get_ref_cle()?.to_string());
 
                 if let Some(attachments) = &doc_message_incoming.attachments {
                     for (h, _) in attachments {
