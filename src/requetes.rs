@@ -327,6 +327,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
     let mut projection = doc! {
         "uuid_transaction": true,
         "hachage_bytes": true,
+        "ref_hachage_bytes": true,
     };
     let opts = FindOptions::builder().projection(projection).limit(1000).build();
     let collection = middleware.get_collection(nom_collection)?;
