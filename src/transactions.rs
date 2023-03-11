@@ -551,7 +551,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     }
 }
 
-async fn emettre_notifications<M>(middleware: &M, usagers: &HashMap<String, Option<String>>, uuid_transaction: &str, uuid_message: &str)
+pub async fn emettre_notifications<M>(middleware: &M, usagers: &HashMap<String, Option<String>>, uuid_transaction: &str, uuid_message: &str)
     -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {

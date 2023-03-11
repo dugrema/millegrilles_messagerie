@@ -1330,13 +1330,18 @@ async fn recevoir_notification<M>(
     let message = &notification.message;
 
     let now: Bson = DateEpochSeconds::now().into();
-    for user_id in destinataires {
+    let uuid_transaction = entete.uuid_transaction.as_str();
+
+    let mut map_usagers = HashMap::new();
+    for user_id in &destinataires {
         // Sauvegarder message pour l'usager
         debug!("transaction_recevoir Sauvegarder message pour usager : {}", user_id);
+        map_usagers.insert(user_id.to_owned(), Some(user_id.to_owned()));
+
         let doc_user_reception = doc! {
-            "user_id": &user_id,
-            "uuid_transaction": &entete.uuid_transaction,
-            "uuid_message": &entete.uuid_transaction,
+            "user_id": user_id,
+            "uuid_transaction": uuid_transaction,
+            "uuid_message": uuid_transaction,
             "lu": false,
             CHAMP_SUPPRIME: false,
             "date_reception": &now,
@@ -1379,6 +1384,11 @@ async fn recevoir_notification<M>(
                 .build();
             middleware.emettre_evenement(routage, &m).await?;
         }
+    }
+
+    if let Err(e) = emettre_notifications(
+        middleware, &map_usagers, uuid_transaction, uuid_transaction).await {
+        warn!("recevoir_notification Erreur emission notifications : {:?}", e);
     }
 
     Ok(())
