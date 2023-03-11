@@ -58,6 +58,7 @@ pub const TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS: &str = "sauvegarderC
 pub const TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS: &str = "sauvegarderUsagerConfigNotifications";
 pub const TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH: &str = "sauvegarderSubscriptionWebpush";
 pub const TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH: &str = "retirerSubscriptionWebpush";
+pub const TRANSACTION_NOTIFIER: &str = "notifier";
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 

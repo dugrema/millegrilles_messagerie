@@ -7,7 +7,7 @@ use millegrilles_common_rust::chrono;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::chrono::serde::ts_seconds_option;
 use millegrilles_common_rust::common_messages::DataChiffre;
-use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete};
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
 use millegrilles_common_rust::bson::serde_helpers::deserialize_chrono_datetime_from_bson_datetime;
@@ -635,4 +635,25 @@ pub struct EmailNotification {
     pub address: String,
     pub title: String,
     pub body: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocumentNotification {
+    pub message_chiffre: String,
+    pub niveau: String,
+    pub attachments: Option<Vec<String>>,
+    // Information de dechiffrage
+    pub format: String,
+    pub ref_hachage_bytes: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeRecevoir {
+    pub destinataires: Option<Vec<String>>,
+    pub expiration: Option<i64>,
+    pub message: DocumentNotification,
+    #[serde(rename="_cle")]
+    pub cle: Option<MessageMilleGrille>,
 }

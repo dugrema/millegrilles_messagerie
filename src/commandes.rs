@@ -91,6 +91,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS => commande_sauvegarder_usager_config_notifications(middleware, m, gestionnaire).await,
         TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH => commande_sauvegarder_subscription_webpush(middleware, m, gestionnaire).await,
         TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH => commande_retirer_subscription_webpush(middleware, m, gestionnaire).await,
+        TRANSACTION_NOTIFIER => commande_notifier(middleware, m, gestionnaire).await,
 
         // Commandes inconnues
         _ => Err(format!("core_backup.consommer_commande: Commande {} inconnue : {}, message dropped", DOMAINE_NOM, m.action))?,
@@ -1212,4 +1213,54 @@ async fn commande_retirer_subscription_webpush<M>(middleware: &M, m: MessageVali
     }
 
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+}
+
+async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509,
+{
+    debug!("commande_notifier Consommer : {:?}", & m.message);
+    let commande: CommandeRecevoir = m.message.get_msg().map_contenu(None)?;
+    debug!("commande_notifier parsed : {:?}", commande);
+
+    // Verifier que le certificat a un exchange ou user_id
+    match &m.message.certificat {
+        Some(c) => {
+            match c.get_user_id()? {
+                Some(_) => (),  // Ok
+                None => match c.verifier_exchanges(vec![Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure]) {
+                    true => (),  // Ok
+                    false => Err(format!("transactions.retirer_subscription_webpush Certificat sans user_id ou sans exchange L1-L4"))?
+                }
+            }
+        },
+        None => Err(format!("commandes.commande_retirer_subscription_webpush Erreur chargement certificat pour notification"))?
+    }
+
+    // Sauvegarder la cle au besoin
+    if let Some(cle) = commande.cle {
+        if let Some(partition) = cle.entete.partition.as_ref() {
+            debug!("Sauvegarder cle de notification avec partition {}", partition);
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                .exchanges(vec![Securite::L3Protege])
+                .partition(partition)
+                .build();
+            middleware.transmettre_commande(routage, &cle, true).await?;
+        }
+    }
+
+    // Verifier si la notification est volatile (avec expiration).
+    // Les notifications volatiles ne sont pas sauvegardees via transaction.
+    match &commande.expiration {
+        Some(e) => {
+            debug!("Sauvegarder notification volatile, expiration {}", e);
+            Ok(middleware.reponse_ok()?)
+        },
+        None => {
+            // Notification sans expiration, sauvegarder sous forme de transaction
+            debug!("Sauvegarder notification sans expiration");
+            Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+        }
+    }
+
 }
