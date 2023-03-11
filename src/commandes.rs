@@ -7,7 +7,7 @@ use base64::{Engine as _, engine::general_purpose};
 use log::{debug, error, info, warn};
 use millegrilles_common_rust::{multibase, serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
-use millegrilles_common_rust::bson::{doc, Document};
+use millegrilles_common_rust::bson::{Bson, doc, Document};
 use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
@@ -18,7 +18,7 @@ use millegrilles_common_rust::constantes::Securite::{L2Prive, L3Protege};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
-use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao};
+use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao, verifier_erreur_duplication_mongo};
 use millegrilles_common_rust::mongodb::Collection;
 use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
 use millegrilles_common_rust::multibase::Base;
@@ -1215,6 +1215,19 @@ async fn commande_retirer_subscription_webpush<M>(middleware: &M, m: MessageVali
     Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
+#[derive(Clone, Debug, Deserialize)]
+struct InfoUsager {
+    #[serde(rename="userId")]
+    user_id: String,
+    #[serde(rename="nomUsager")]
+    nom_usager: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ReponseListeUsagers {
+    usagers: Vec<InfoUsager>
+}
+
 async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509,
@@ -1266,7 +1279,19 @@ async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnai
                 None => Some(CONST_EXPIRATION_NOTIFICATION_DEFAUT)
             };
             // Charger la liste des proprietaires (requete a MaitreDesComptes)
-            (vec!["zABCD1234".to_string()], expiration)
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCOMPTES, ACTION_GET_LISTE_PROPRIETAIRES)
+                .exchanges(vec![Securite::L3Protege])
+                .build();
+            let requete = json!({});
+            match middleware.transmettre_requete(routage, &requete).await? {
+                TypeMessage::Valide(m) => {
+                    debug!("Reponse liste proprietaires : {:?}", m);
+                    let reponse: ReponseListeUsagers = m.message.parsed.map_contenu(None)?;
+                    let user_ids: Vec<String> = reponse.usagers.into_iter().map(|u| u.user_id).collect();
+                    (user_ids, expiration)
+                },
+                _ => Err(format!("Erreur chargement liste proprietaires"))?
+            }
         }
     };
 
@@ -1298,5 +1323,63 @@ async fn recevoir_notification<M>(
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("recevoir_notification {:?} de {:?} pour {:?}", notification, enveloppe, destinataires);
-    todo!("fix me")
+
+    let fp_certs = enveloppe.get_pem_vec();
+    let certificat_message_pem: Vec<String> = fp_certs.into_iter().map(|c| c.pem).collect();
+
+    let message = &notification.message;
+
+    let now: Bson = DateEpochSeconds::now().into();
+    for user_id in destinataires {
+        // Sauvegarder message pour l'usager
+        debug!("transaction_recevoir Sauvegarder message pour usager : {}", user_id);
+        let doc_user_reception = doc! {
+            "user_id": &user_id,
+            "uuid_transaction": &entete.uuid_transaction,
+            "uuid_message": &entete.uuid_transaction,
+            "lu": false,
+            CHAMP_SUPPRIME: false,
+            "date_reception": &now,
+            "date_ouverture": None::<&str>,
+            "certificat_message": &certificat_message_pem,
+            "message_chiffre": &message.message_chiffre,
+
+            // Attachments - note, pas encore supporte via notifications
+            CHAMP_ATTACHMENTS: None::<&str>,  // &attachments_bson,
+            CHAMP_ATTACHMENTS_TRAITES: true,  // &attachments_recus,
+
+            // Info specifique aux notifications
+            "ref_hachage_bytes": &message.ref_hachage_bytes,
+            "header": &message.header,
+            "format": &message.format,
+            "niveau": &message.niveau,
+            "expiration": notification.expiration,
+        };
+
+        debug!("recevoir_notification Inserer message {:?}", doc_user_reception);
+        let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+        match collection.insert_one(&doc_user_reception, None).await {
+            Ok(_r) => (),
+            Err(e) => {
+                let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+                if erreur_duplication {
+                    info!("recevoir_notification Erreur duplication notification : {:?}", e);
+                } else {
+                    Err(e)?  // Relancer erreur
+                }
+            }
+        }
+
+        // Evenement de nouveau message pour front-end, notifications
+        if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
+            // let message_mappe: MessageIncoming =
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
+                .exchanges(vec![L2Prive])
+                .partition(user_id)
+                .build();
+            middleware.emettre_evenement(routage, &m).await?;
+        }
+    }
+
+    Ok(())
 }
