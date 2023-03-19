@@ -502,23 +502,27 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     doc_user_reception.insert("certificat_millegrille", cm);
                 }
 
-                if let Some(adresse_usager) = d.adresse.as_ref() {
-                    debug!("transaction_recevoir Inserer message {:?}", doc_user_reception);
-                    match collection.insert_one(&doc_user_reception, None).await {
-                        Ok(_r) => {
-                            // Marquer usager comme trouve et traite
+                debug!("transaction_recevoir Inserer message {:?}", doc_user_reception);
+                match collection.insert_one(&doc_user_reception, None).await {
+                    Ok(_r) => {
+                        // Marquer usager comme trouve et traite
+                        if let Some(adresse_usager) = d.adresse.as_ref() {
                             destinataires_resultat.insert(adresse_usager.to_owned(), 201);  // Message cree pour usager
-                        },
-                        Err(e) => {
-                            let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
-                            if erreur_duplication {
-                                warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", doc_user_reception);
+                        }
+                    },
+                    Err(e) => {
+                        let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+                        if erreur_duplication {
+                            warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", doc_user_reception);
+                            if let Some(adresse_usager) = d.adresse.as_ref() {
                                 destinataires_resultat.insert(adresse_usager.to_owned(), 200);  // Message deja traite
-                                return middleware.reponse_ok();
-                            } else {
-                                destinataires_resultat.insert(adresse_usager.to_owned(), 500);  // Erreur de traitement
-                                Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
                             }
+                            return middleware.reponse_ok();
+                        } else {
+                            if let Some(adresse_usager) = d.adresse.as_ref() {
+                                destinataires_resultat.insert(adresse_usager.to_owned(), 500);  // Erreur de traitement
+                            }
+                            Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
                         }
                     }
                 }

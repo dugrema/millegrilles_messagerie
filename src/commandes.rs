@@ -289,7 +289,16 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
 
     if let Some(cle) = commande.cle.take() {
         debug!("Sauvegarder cle : {:?}", cle);
-        todo!("Sauvegarder cle");
+        if let Some(p) = cle.partition.as_ref() {
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                .exchanges(vec![Securite::L3Protege])
+                .partition(p.to_owned())
+                .build();
+            let reponse = middleware.transmettre_commande(routage, &cle, true).await?;
+            debug!("Reponse commande sauvegarder cle {:?}", reponse);
+        } else {
+            Err(format!("commandes.recevoir Erreur sauvegarde cle - partition n'est pas fournie"))?
+        }
     }
 
     // let destinataires_user_id: Vec<String> = reponse_mappee.usagers.iter().filter_map(|v| v.1.to_owned()).collect();
