@@ -1416,6 +1416,18 @@ async fn recevoir_notification<M>(
     let fp_certs = enveloppe.get_pem_vec();
     let certificat_message_pem: Vec<String> = fp_certs.into_iter().map(|c| c.pem).collect();
 
+    // Sauvegarder la cle au besoin
+    if let Some(cle) = notification.cle.as_ref() {
+        if let Some(partition) = cle.entete.partition.as_ref() {
+            debug!("Sauvegarder cle de notification avec partition {}", partition);
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                .exchanges(vec![Securite::L3Protege])
+                .partition(partition)
+                .build();
+            middleware.transmettre_commande(routage, cle, true).await?;
+        }
+    }
+
     let message = &notification.message;
 
     let now: Bson = DateEpochSeconds::now().into();
