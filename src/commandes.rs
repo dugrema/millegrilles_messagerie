@@ -142,7 +142,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     debug!("commandes.commande_recevoir Consommer commande : {:?}", & m.message);
-    let commande: CommandeRecevoirPost = m.message.get_msg().map_contenu(None)?;
+    let mut commande: CommandeRecevoirPost = m.message.get_msg().map_contenu(None)?;
     debug!("commandes.commande_recevoir Commande nouvelle versions parsed : {:?}", commande);
 
     {
@@ -170,9 +170,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
         }
     }
 
-    let message_ref = &commande.message;
-
-    let cert_millegrille_pem = match message_ref.get("_millegrille") {
+    let cert_millegrille_pem = match commande.message.get("_millegrille") {
         Some(c) => {
             debug!("commande_recevoir Utiliser certificat de millegrille pour valider : {:?}", c);
             let millegrille_pem: String = serde_json::from_value(c.to_owned())?;
@@ -184,7 +182,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
         }
     };
 
-    let enveloppe_cert: Arc<EnveloppeCertificat> = match message_ref.get("_certificat") {
+    let enveloppe_cert: Arc<EnveloppeCertificat> = match commande.message.get("_certificat") {
         Some(c) => {
             let certificat_pem: Vec<String> = serde_json::from_value(c.to_owned())?;
             match cert_millegrille_pem.as_ref() {
@@ -202,36 +200,118 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
         }
     };
 
-    let mut message = MessageSerialise::from_serializable(&commande.message)?;
-    debug!("Valider message avec certificat {:?}", enveloppe_cert);
-    message.set_certificat(enveloppe_cert);
+    {
+        let mut message = MessageSerialise::from_serializable(&commande.message)?;
+        debug!("Valider message avec certificat {:?}", enveloppe_cert);
+        message.set_certificat(enveloppe_cert);
 
-    match cert_millegrille_pem.as_ref() {
-        Some(c) => {
-            let cert = middleware.charger_enveloppe(&vec![c.to_owned()], None, None).await?;
-            message.set_millegrille(cert);
-        },
-        None => ()
-    }
+        match cert_millegrille_pem.as_ref() {
+            Some(c) => {
+                let cert = middleware.charger_enveloppe(&vec![c.to_owned()], None, None).await?;
+                message.set_millegrille(cert);
+            },
+            None => ()
+        }
 
-    let options_validation = ValidationOptions::new(true, true, true);
-    match middleware.verifier_message(&mut message, Some(&options_validation)) {
-        Ok(resultat) => {
-            if ! resultat.valide() {
-                error!("commande_recevoir Erreur validation message : {:?}", resultat);
-                let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", resultat)});
+        let options_validation = ValidationOptions::new(true, true, true);
+        match middleware.verifier_message(&mut message, Some(&options_validation)) {
+            Ok(resultat) => {
+                if !resultat.valide() {
+                    error!("commande_recevoir Erreur validation message : {:?}", resultat);
+                    let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", resultat)});
+                    return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+                }
+            },
+            Err(e) => {
+                error!("commande_recevoir Erreur validation message : {:?}", e);
+                let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", e)});
                 return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
             }
-        },
-        Err(e) => {
-            error!("commande_recevoir Erreur validation message : {:?}", e);
-            let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", e)});
-            return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
         }
     }
 
+    // Resolve users
+    let destinataires = {
+        let mut destinataires_user_id = match commande.destinataires_user_id {
+            Some(inner) => inner.clone(),
+            None => Vec::new()
+        };
+
+        let mut destinataires_adresse_user = Vec::new();
+        for adresse in &commande.destinataires {
+            debug!("Resolve destinataire {}", adresse);
+            match AdresseMessagerie::new(adresse.as_str()) {
+                Ok(a) => destinataires_adresse_user.push(a.user),
+                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+            }
+        }
+        let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        let requete = json!({"noms_usagers": destinataires_adresse_user});
+        debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
+        let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
+        debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
+        let reponse_mappee: ReponseUseridParNomUsager = match reponse {
+            TypeMessage::Valide(m) => {
+                match m.message.parsed.map_contenu(None) {
+                    Ok(m) => m,
+                    Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
+                }
+            },
+            _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
+        };
+
+        // for (username, user_id) in reponse_mappee.usagers {
+        //     destinataires_user_id.push(DestinataireInfo{adresse: Some(adresse), user_id});
+        // }
+
+        for adresse in &commande.destinataires {
+            debug!("Resolve destinataire {}", adresse);
+            match AdresseMessagerie::new(adresse.as_str()) {
+                Ok(a) => {
+                    let user_id_option = reponse_mappee.usagers.get(a.user.as_str());
+                    if let Some(uo) = user_id_option {
+                        destinataires_user_id.push(DestinataireInfo{
+                            adresse: Some(adresse.to_owned()),
+                            user_id: uo.to_owned()
+                        })
+                    }
+                    // destinataires_user_id.push(DestinataireInfo{adresse: Some(adresse), user_id})
+                    // destinataires_adresse_user.push(a.user),
+                },
+                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+            }
+        }
+
+        destinataires_user_id
+    };
+
+    if let Some(cle) = commande.cle.take() {
+        debug!("Sauvegarder cle : {:?}", cle);
+        todo!("Sauvegarder cle");
+    }
+
+    // let destinataires_user_id: Vec<String> = reponse_mappee.usagers.iter().filter_map(|v| v.1.to_owned()).collect();
+    // let mut message_contenu = commande.message;
+    // message_contenu.insert("destinataires_user_id".to_string(), Value::from(destinataires_user_id));
+
+    // let message = MessageSerialise::from_serializable(&message_contenu)?;
+
+    // Cleanup, retirer certificat du message (stocke externe)
+    commande.message.remove("_certificat");
+
+    let commande_maj = CommandeRecevoirPost {
+        message: commande.message,
+        destinataires: commande.destinataires,
+        destinataires_user_id: Some(destinataires),
+        cle: None
+    };
+
     // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    //Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    Ok(sauvegarder_traiter_transaction_serializable(
+        middleware, &commande_maj, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?)
 }
 
 async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -1332,11 +1412,12 @@ async fn recevoir_notification<M>(
     let now: Bson = DateEpochSeconds::now().into();
     let uuid_transaction = entete.uuid_transaction.as_str();
 
-    let mut map_usagers = HashMap::new();
+    let mut liste_usagers = Vec::new();
     for user_id in &destinataires {
         // Sauvegarder message pour l'usager
         debug!("transaction_recevoir Sauvegarder message pour usager : {}", user_id);
-        map_usagers.insert(user_id.to_owned(), Some(user_id.to_owned()));
+        // map_usagers.insert(user_id.to_owned(), Some(user_id.to_owned()));
+        liste_usagers.push(DestinataireInfo {adresse: None, user_id: Some(user_id.to_owned())});
 
         let doc_user_reception = doc! {
             "user_id": user_id,
@@ -1387,7 +1468,7 @@ async fn recevoir_notification<M>(
     }
 
     if let Err(e) = emettre_notifications(
-        middleware, &map_usagers, uuid_transaction, uuid_transaction).await {
+        middleware, &liste_usagers, uuid_transaction, uuid_transaction).await {
         warn!("recevoir_notification Erreur emission notifications : {:?}", e);
     }
 

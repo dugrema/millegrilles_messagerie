@@ -381,43 +381,69 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     let fingerprint_usager = message_enveloppe.fingerprint_certificat;
     let attachments = message_enveloppe.attachments;
 
+    // let destinataires = match message_recevoir.destinataires_user_id.as_ref() {
+    //     Some(inner) => {
+    //         if inner.len() > 0 {
+    //             inner
+    //         } else {
+    //             Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
+    //         }
+    //     },
+    //     None => Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id"))?
+    // };
+
     // Retirer la part serveur du destinataire
-    let mut destinataires_resultat = HashMap::new();
-    let (destinataires_nomusager, destinataires_adresses) = {
-        let mut destinataires = Vec::new();
-        let mut destinataires_adresses = HashMap::new();
-        for adresse in &message_recevoir.destinataires {
-            match AdresseMessagerie::new(adresse.as_str()) {
-                Ok(a) => {
-                    destinataires_adresses.insert(a.user.clone(), adresse.to_owned());
-                    destinataires_resultat.insert(adresse.to_owned(), 404);  // Defaut usager inconnu
-                    destinataires.push(a.user);
-                },
-                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
-            }
-        }
-        (destinataires, destinataires_adresses)
-    };
+    // let mut destinataires_resultat = HashMap::new();
+    // let (destinataires_nomusager, destinataires_adresses) = {
+    //     let mut destinataires = Vec::new();
+    //     let mut destinataires_adresses = HashMap::new();
+    //     for adresse in &message_recevoir.destinataires {
+    //         match AdresseMessagerie::new(adresse.as_str()) {
+    //             Ok(a) => {
+    //                 destinataires_adresses.insert(a.user.clone(), adresse.to_owned());
+    //                 destinataires_resultat.insert(adresse.to_owned(), 404);  // Defaut usager inconnu
+    //                 destinataires.push(a.user);
+    //             },
+    //             Err(e) => {
+    //                 // Verifier si c'est un nom d'usager interne
+    //
+    //                 info!("Erreur parsing adresse {}, on l'ignore", adresse)
+    //             }
+    //         }
+    //     }
+    //     (destinataires, destinataires_adresses)
+    // };
 
     // Resolve destinataires nom_usager => user_id
-    let reponse_mappee: ReponseUseridParNomUsager = {
-        let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
-            .exchanges(vec![Securite::L4Secure])
-            .build();
-        let requete = json!({"noms_usagers": destinataires_nomusager});
-        debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
-        let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
-        debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
-        match reponse {
-            TypeMessage::Valide(m) => {
-                match m.message.parsed.map_contenu(None) {
-                    Ok(m) => m,
-                    Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
-                }
-            },
-            _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
-        }
+    let destinataires = match message_recevoir.destinataires_user_id.as_ref() {
+        Some(inner) => {
+            if inner.len() > 0 {
+                inner
+            } else {
+                Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
+            }
+        },
+        None => Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id"))?
     };
+
+    // let reponse_mappee: ReponseUseridParNomUsager = {
+    //     let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
+    //         .exchanges(vec![Securite::L4Secure])
+    //         .build();
+    //     let requete = json!({"noms_usagers": destinataires_nomusager});
+    //     debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
+    //     let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
+    //     debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
+    //     match reponse {
+    //         TypeMessage::Valide(m) => {
+    //             match m.message.parsed.map_contenu(None) {
+    //                 Ok(m) => m,
+    //                 Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
+    //             }
+    //         },
+    //         _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
+    //     }
+    // };
 
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
 
@@ -449,20 +475,21 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         None => None
     };
 
-    for (nom_usager, user_id) in &reponse_mappee.usagers {
-        let adresse_usager = destinataires_adresses.get(nom_usager);
-        let now: Bson = DateEpochSeconds::now().into();
-        match user_id {
+    let mut destinataires_resultat = HashMap::new();
+    let now: Bson = DateEpochSeconds::now().into();
+    for d in destinataires {
+        match d.user_id.as_ref() {
             Some(u) => {
                 // Sauvegarder message pour l'usager
                 debug!("transaction_recevoir Sauvegarder message pour usager : {}", u);
+
                 let mut doc_user_reception = doc! {
                     "user_id": u,
                     "uuid_transaction": &uuid_transaction,
                     "uuid_message": &uuid_message,
                     "lu": false,
                     CHAMP_SUPPRIME: false,
-                    "date_reception": now,
+                    "date_reception": &now,
                     "date_ouverture": None::<&str>,
                     "certificat_message": &certificat_usager_pem,
                     "message_chiffre": &message_chiffre,
@@ -475,27 +502,23 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     doc_user_reception.insert("certificat_millegrille", cm);
                 }
 
-                debug!("transaction_recevoir Inserer message {:?}", doc_user_reception);
-                match collection.insert_one(&doc_user_reception, None).await {
-                    Ok(_r) => {
-                        // Marquer usager comme trouve et traite
-                        if let Some(ua) = adresse_usager {
-                            destinataires_resultat.insert(ua.to_owned(), 201);  // Message cree pour usager
-                        }
-                    },
-                    Err(e) => {
-                        let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
-                        if erreur_duplication {
-                            warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", doc_user_reception);
-                            if let Some(ua) = adresse_usager {
-                                destinataires_resultat.insert(ua.to_owned(), 200);  // Message deja traite
+                if let Some(adresse_usager) = d.adresse.as_ref() {
+                    debug!("transaction_recevoir Inserer message {:?}", doc_user_reception);
+                    match collection.insert_one(&doc_user_reception, None).await {
+                        Ok(_r) => {
+                            // Marquer usager comme trouve et traite
+                            destinataires_resultat.insert(adresse_usager.to_owned(), 201);  // Message cree pour usager
+                        },
+                        Err(e) => {
+                            let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+                            if erreur_duplication {
+                                warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", doc_user_reception);
+                                destinataires_resultat.insert(adresse_usager.to_owned(), 200);  // Message deja traite
+                                return middleware.reponse_ok();
+                            } else {
+                                destinataires_resultat.insert(adresse_usager.to_owned(), 500);  // Erreur de traitement
+                                Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
                             }
-                            return middleware.reponse_ok();
-                        } else {
-                            if let Some(ua) = adresse_usager {
-                                destinataires_resultat.insert(ua.to_owned(), 500);  // Erreur de traitement
-                            }
-                            Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
                         }
                     }
                 }
@@ -510,7 +533,11 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     middleware.emettre_evenement(routage, &m).await?;
                 }
             },
-            None => warn!("transaction_recevoir Nom usager local inconnu : {}", nom_usager)
+            None => {
+                if let Some(adresse_usager) = d.adresse.as_ref() {
+                    destinataires_resultat.insert(adresse_usager.to_owned(), 404);  // Usager inconnu
+                }
+            }
         }
     }
 
@@ -540,26 +567,26 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     }
 
     if let Err(e) = emettre_notifications(
-        middleware, &reponse_mappee.usagers, uuid_transaction.as_str(), uuid_message.as_str()).await {
+        middleware, destinataires, uuid_transaction.as_str(), uuid_message.as_str()).await {
         warn!("transaction_recevoir Erreur emission notifications : {:?}", e);
     }
 
-    let reponse = json!({"ok": true, "usagers": destinataires_resultat});
+    let reponse = json!({"ok": true /*, "usagers": destinataires_resultat*/});
     match middleware.formatter_reponse(&reponse, None) {
         Ok(r) => Ok(Some(r)),
         Err(e) => Err(format!("transactions.transaction_recevoir Erreur formattage reponse : {:?}", e))?
     }
 }
 
-pub async fn emettre_notifications<M>(middleware: &M, usagers: &HashMap<String, Option<String>>, uuid_transaction: &str, uuid_message: &str)
+pub async fn emettre_notifications<M>(middleware: &M, usagers: &Vec<DestinataireInfo>, uuid_transaction: &str, uuid_message: &str)
     -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("emettre_notifications uuid_transaction {}, uuid_message {}", uuid_transaction, uuid_message);
     // Trouver user_ids avec notifications activees, emettre trigger
     let mut user_ids = Vec::new();
-    for (_, user_id) in usagers {
-        if let Some(u) = user_id.as_ref() {
+    for d in usagers {
+        if let Some(u) = d.user_id.as_ref() {
             user_ids.push(u.as_str());
         }
     }

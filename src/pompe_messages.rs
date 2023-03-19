@@ -468,7 +468,7 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     let (message_a_transmettre, _) = charger_message(middleware, uuid_transaction).await?;
 
     // Emettre commande recevoir
-    let commande = CommandeRecevoirPost{ message: message_a_transmettre, destinataires: destinataires.clone(), };
+    let commande = CommandeRecevoirPost{ message: message_a_transmettre, destinataires: destinataires.clone(), destinataires_user_id: None, cle: None};
     let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_RECEVOIR)
         .exchanges(vec![Securite::L2Prive])
         .build();

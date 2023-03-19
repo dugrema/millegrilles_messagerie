@@ -148,9 +148,19 @@ pub struct TransactionRecevoir {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DestinataireInfo {
+    pub adresse: Option<String>,
+    pub user_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeRecevoirPost {
     pub message: Map<String, Value>,
     pub destinataires: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destinataires_user_id: Option<Vec<DestinataireInfo>>,  // Destinataires resolved (interne)
+    #[serde(rename = "_cle", skip_serializing_if = "Option::is_none")]
+    pub cle: Option<CommandeSauvegarderCle>,         // Cle a sauvegarder
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

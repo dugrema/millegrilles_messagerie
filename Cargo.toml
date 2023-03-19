@@ -1,6 +1,6 @@
 [package]
 name = "millegrilles_messagerie"
-version = "2023.2.3"
+version = "2023.3.0"
 edition = "2021"
 
 [dependencies]
