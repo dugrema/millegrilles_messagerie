@@ -96,7 +96,7 @@ async fn verification_attachments<M>(middleware: &M, fuuids: Vec<String>) -> Res
     debug!("verification_attachments Reponse : {:?}", reponse);
     // let mut set_ops = doc!{};
     if let TypeMessage::Valide(r) = reponse {
-        let reponse_mappee: ReponseVerifierExistanceFuuidsMessage = r.message.parsed.map_contenu(None)?;
+        let reponse_mappee: ReponseVerifierExistanceFuuidsMessage = r.message.parsed.map_contenu()?;
         for (key, value) in reponse_mappee.fuuids.into_iter() {
             if value {
                 // set_ops.insert(format!("attachments.{}", key), true);

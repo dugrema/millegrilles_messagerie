@@ -103,7 +103,7 @@ async fn commande_poster<M>(middleware: &M, m: MessageValideAction, gestionnaire
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("commande_poster Consommer commande : {:?}", & m.message);
-    let commande: CommandePoster = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandePoster = m.message.get_msg().map_contenu()?;
     debug!("Commande nouvelle versions parsed : {:?}", commande);
 
     {
@@ -142,7 +142,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     debug!("commandes.commande_recevoir Consommer commande : {:?}", & m.message);
-    let mut commande: CommandeRecevoirPost = m.message.get_msg().map_contenu(None)?;
+    let mut commande: CommandeRecevoirPost = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_recevoir Commande nouvelle versions parsed : {:?}", commande);
 
     {
@@ -254,7 +254,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
         debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
         let reponse_mappee: ReponseUseridParNomUsager = match reponse {
             TypeMessage::Valide(m) => {
-                match m.message.parsed.map_contenu(None) {
+                match m.message.parsed.map_contenu() {
                     Ok(m) => m,
                     Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
                 }
@@ -328,7 +328,7 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
     where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait
 {
     debug!("commandes.commande_initialiser_profil Consommer commande : {:?}", & m.message);
-    let commande: CommandeInitialiserProfil = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeInitialiserProfil = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_initialiser_profil Commande nouvelle versions parsed : {:?}", commande);
 
     {
@@ -402,7 +402,7 @@ async fn commande_maj_contact<M>(middleware: &M, m: MessageValideAction, gestion
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commandes.commande_maj_contact Consommer commande : {:?}", & m.message);
-    let commande: Contact = m.message.get_msg().map_contenu(None)?;
+    let commande: Contact = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_maj_contact Commande nouvelle versions parsed : {:?}", commande);
 
     {
@@ -435,7 +435,7 @@ async fn commande_lu<M>(middleware: &M, m: MessageValideAction, gestionnaire: &G
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commandes.commande_lu Consommer commande : {:?}", & m.message);
-    let commande: CommandeLu = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeLu = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_lu Commande nouvelle versions parsed : {:?}", commande);
 
     {
@@ -468,7 +468,7 @@ async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideActi
     where M: ValidateurX509 + MongoDao + GenerateurMessages
 {
     debug!("commande_confirmer_transmission Consommer commande : {:?}", & m.message);
-    let commande: CommandeConfirmerTransmission = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeConfirmerTransmission = m.message.get_msg().map_contenu()?;
     debug!("commande_confirmer_transmission Commande parsed : {:?}", commande);
 
     let uuid_message = commande.uuid_message.as_str();
@@ -500,7 +500,7 @@ async fn commande_prochain_attachment<M>(middleware: &M, m: MessageValideAction,
     where M: ValidateurX509 + MongoDao + GenerateurMessages
 {
     debug!("commande_confirmer_transmission Consommer commande : {:?}", & m.message);
-    let commande: CommandeProchainAttachment = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeProchainAttachment = m.message.get_msg().map_contenu()?;
     debug!("commande_confirmer_transmission Commande parsed : {:?}", commande);
 
     let uuid_message = commande.uuid_message.as_str();
@@ -573,7 +573,7 @@ async fn commande_supprimer_message<M>(middleware: &M, m: MessageValideAction, g
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commandes.commande_supprimer_message Consommer commande : {:?}", & m.message);
-    let commande: TransactionSupprimerMessage = m.message.get_msg().map_contenu(None)?;
+    let commande: TransactionSupprimerMessage = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_supprimer_message Commande parsed : {:?}", commande);
 
     {
@@ -607,7 +607,7 @@ async fn commande_supprimer_contacts<M>(middleware: &M, m: MessageValideAction, 
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commandes.commande_supprimer_contacts Consommer commande : {:?}", & m.message);
-    let commande: TransactionSupprimerContacts = m.message.get_msg().map_contenu(None)?;
+    let commande: TransactionSupprimerContacts = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_supprimer_contacts Commande parsed : {:?}", commande);
 
     {
@@ -641,7 +641,7 @@ async fn commande_conserver_configuration_notifications<M>(middleware: &M, mut m
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commandes.commande_conserver_configuration_notifications Consommer commande : {:?}", & m.message);
-    let mut commande: TransactionConserverConfigurationNotifications = m.message.get_msg().map_contenu(None)?;
+    let mut commande: TransactionConserverConfigurationNotifications = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_conserver_configuration_notifications Commande parsed : {:?}", commande);
 
     // Autorisation: Action usager avec compte prive ou delegation globale
@@ -684,7 +684,7 @@ async fn commande_upload_attachment<M>(middleware: &M, m: MessageValideAction)
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commande_upload_attachment Consommer : {:?}", & m.message);
-    let evenement: CommandeUploadAttachment = m.message.get_msg().map_contenu(None)?;
+    let evenement: CommandeUploadAttachment = m.message.get_msg().map_contenu()?;
     debug!("commande_upload_attachment parsed : {:?}", evenement);
 
     let idmg = evenement.idmg.as_str();
@@ -743,7 +743,7 @@ async fn commande_fuuid_verifier_existance<M>(middleware: &M, m: MessageValideAc
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commande_fuuid_verifier_existance Consommer : {:?}", & m.message);
-    let commande: CommandeVerifierExistanceFuuidsMessage = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeVerifierExistanceFuuidsMessage = m.message.get_msg().map_contenu()?;
     debug!("commande_fuuid_verifier_existance parsed : {:?}", commande);
 
     // Faire requete vers fichiers
@@ -756,7 +756,7 @@ async fn commande_fuuid_verifier_existance<M>(middleware: &M, m: MessageValideAc
     debug!("commande_fuuid_verifier_existance Reponse : {:?}", reponse);
     let mut set_ops = doc!{};
     if let TypeMessage::Valide(r) = reponse {
-        let reponse_mappee: ReponseVerifierExistanceFuuidsMessage = r.message.parsed.map_contenu(None)?;
+        let reponse_mappee: ReponseVerifierExistanceFuuidsMessage = r.message.parsed.map_contenu()?;
         for (key, value) in reponse_mappee.fuuids.into_iter() {
             if(value) {
                 set_ops.insert(format!("attachments.{}", key), true);
@@ -804,7 +804,7 @@ async fn commande_conserver_cles_attachments<M>(middleware: &M, m: MessageValide
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commande_conserver_cles_attachments Consommer commande : {:?}", & m.message);
-    let commande: CommandeConserverClesAttachment = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeConserverClesAttachment = m.message.get_msg().map_contenu()?;
     debug!("commande_conserver_cles_attachments parsed : {:?}", commande);
     // debug!("Commande en json (DEBUG) : \n{:?}", serde_json::to_string(&commande));
 
@@ -832,7 +832,7 @@ async fn commande_conserver_cles_attachments<M>(middleware: &M, m: MessageValide
                     Some(c) => {
                         if c.verifier_roles(vec![RolesCertificats::MaitreDesCles]) {
                             debug!("commande_conserver_cles_attachments Reponse preuve : {:?}", m);
-                            let preuve_value: ReponsePreuvePossessionCles = m.message.get_msg().map_contenu(None)?;
+                            let preuve_value: ReponsePreuvePossessionCles = m.message.get_msg().map_contenu()?;
                             Ok(preuve_value)
                         } else {
                             Err(format!("commandes.commande_conserver_cles_attachments Erreur chargement certificat de reponse verification preuve, certificat n'est pas de role maitre des cles"))
@@ -868,7 +868,7 @@ async fn commande_conserver_cles_attachments<M>(middleware: &M, m: MessageValide
                 if let Some(reponse) = reponse_cle {
                     if let TypeMessage::Valide(mva) = reponse {
                         debug!("Reponse valide : {:?}", mva);
-                        let reponse_mappee: ReponseCle = mva.message.get_msg().map_contenu(None)?;
+                        let reponse_mappee: ReponseCle = mva.message.get_msg().map_contenu()?;
                         etat_cle = true;
                     }
                 }
@@ -898,7 +898,7 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
     where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait
 {
     debug!("generer_clewebpush_notifications Consommer commande : {:?}", & m.message);
-    let commande: CommandeGenererClewebpushNotifications = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeGenererClewebpushNotifications = m.message.get_msg().map_contenu()?;
     debug!("generer_clewebpush_notifications parsed : {:?}", commande);
 
     let nid = Nid::X9_62_PRIME256V1; // NIST P-256 curve
@@ -992,7 +992,7 @@ async fn emettre_notifications_usager<M>(middleware: &M, m: MessageValideAction,
     where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait
 {
     debug!("emettre_notifications_usager Consommer commande : {:?}", & m.message);
-    let commande: CommandeEmettreNotificationsUsager = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeEmettreNotificationsUsager = m.message.get_msg().map_contenu()?;
     debug!("emettre_notifications_usager parsed : {:?}", commande);
 
     let user_id = commande.user_id.as_str();
@@ -1239,7 +1239,7 @@ async fn commande_sauvegarder_usager_config_notifications<M>(middleware: &M, m: 
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commande_sauvegarder_usager_config_notifications Consommer : {:?}", & m.message);
-    let commande: TransactionSauvegarderUsagerConfigNotifications = m.message.get_msg().map_contenu(None)?;
+    let commande: TransactionSauvegarderUsagerConfigNotifications = m.message.get_msg().map_contenu()?;
     debug!("commande_sauvegarder_usager_config_notifications parsed : {:?}", commande);
 
     // Verifier que le certificat a un user_id
@@ -1260,7 +1260,7 @@ async fn commande_sauvegarder_subscription_webpush<M>(middleware: &M, m: Message
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commande_sauvegarder_subscription_webpush Consommer : {:?}", & m.message);
-    let commande: TransactionSauvegarderSubscriptionWebpush = m.message.get_msg().map_contenu(None)?;
+    let commande: TransactionSauvegarderSubscriptionWebpush = m.message.get_msg().map_contenu()?;
     debug!("commande_sauvegarder_subscription_webpush parsed : {:?}", commande);
 
     // Verifier que le certificat a un user_id
@@ -1281,7 +1281,7 @@ async fn commande_retirer_subscription_webpush<M>(middleware: &M, m: MessageVali
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commande_retirer_subscription_webpush Consommer : {:?}", & m.message);
-    let commande: TransactionRetirerSubscriptionWebpush = m.message.get_msg().map_contenu(None)?;
+    let commande: TransactionRetirerSubscriptionWebpush = m.message.get_msg().map_contenu()?;
     debug!("commande_retirer_subscription_webpush parsed : {:?}", commande);
 
     // Verifier que le certificat a un user_id
@@ -1322,7 +1322,7 @@ async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnai
     where M: GenerateurMessages + MongoDao + ValidateurX509,
 {
     debug!("commande_notifier Consommer : {:?}", & m.message);
-    let commande: CommandeRecevoir = m.message.get_msg().map_contenu(None)?;
+    let commande: CommandeRecevoir = m.message.get_msg().map_contenu()?;
     debug!("commande_notifier parsed : {:?}", commande);
 
     let entete = m.message.get_entete();
@@ -1375,7 +1375,7 @@ async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnai
             match middleware.transmettre_requete(routage, &requete).await? {
                 TypeMessage::Valide(m) => {
                     debug!("Reponse liste proprietaires : {:?}", m);
-                    let reponse: ReponseListeUsagers = m.message.parsed.map_contenu(None)?;
+                    let reponse: ReponseListeUsagers = m.message.parsed.map_contenu()?;
                     let user_ids: Vec<String> = reponse.usagers.into_iter().map(|u| u.user_id).collect();
                     (user_ids, expiration)
                 },

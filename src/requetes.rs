@@ -82,7 +82,7 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_messages Message : {:?}", & m.message);
-    let requete: RequeteGetMessages = m.message.get_msg().map_contenu(None)?;
+    let requete: RequeteGetMessages = m.message.get_msg().map_contenu()?;
     debug!("requete_get_messages parsed : {:?}", requete);
 
     let user_id = match m.get_user_id() {
@@ -142,7 +142,7 @@ async fn requete_get_messages_attachments<M>(middleware: &M, m: MessageValideAct
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_messages_attachments Message : {:?}", & m.message);
-    let requete: RequeteGetMessages = m.message.get_msg().map_contenu(None)?;
+    let requete: RequeteGetMessages = m.message.get_msg().map_contenu()?;
     debug!("requete_get_messages_attachments parsed : {:?}", requete);
 
     let user_id = match m.get_user_id() {
@@ -183,7 +183,7 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_reference_messages Message : {:?}", & m.message);
-    let requete: RequeteGetReferenceMessages = m.message.get_msg().map_contenu(None)?;
+    let requete: RequeteGetReferenceMessages = m.message.get_msg().map_contenu()?;
     debug!("requete_get_reference_messages cle parsed : {:?}", requete);
 
     let user_id = match m.get_user_id() {
@@ -301,7 +301,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
     };
 
     debug!("requete_get_permission Message : {:?}", & m.message);
-    let requete: ParametresGetPermissionMessages = m.message.get_msg().map_contenu(None)?;
+    let requete: ParametresGetPermissionMessages = m.message.get_msg().map_contenu()?;
     debug!("requete_get_permission parsed : {:?}", requete);
 
     let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
@@ -402,7 +402,7 @@ async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
     };
 
     debug!("requete_get_profil Message : {:?}", & m.message);
-    let requete: ParametresGetProfil = m.message.get_msg().map_contenu(None)?;
+    let requete: ParametresGetProfil = m.message.get_msg().map_contenu()?;
     debug!("requete_get_profil cle parsed : {:?}", requete);
 
     let pem_cert = match m.message.certificat {
@@ -431,7 +431,7 @@ async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
                 debug!("requete_get_profil Requete cle : {:?}", requete_cle);
                 if let TypeMessage::Valide(reponse_cle) = middleware.transmettre_requete(routage, &requete_cle).await? {
                     debug!("requete_get_profil Reponse cle : {:?}", reponse_cle);
-                    let cles: ReponseDechiffrageCles = reponse_cle.message.get_msg().map_contenu(None)?;
+                    let cles: ReponseDechiffrageCles = reponse_cle.message.get_msg().map_contenu()?;
                     profil_reponse.cles = Some(cles);
                 } else {
                     warn!("requete_get_profil Reponse cle mauvais type (!Valide)");
@@ -461,7 +461,7 @@ async fn requete_get_contacts<M>(middleware: &M, m: MessageValideAction)
     };
 
     debug!("requete_get_contacts Message : {:?}", & m.message);
-    let requete: ParametresGetContacts = m.message.get_msg().map_contenu(None)?;
+    let requete: ParametresGetContacts = m.message.get_msg().map_contenu()?;
     debug!("requete_get_contacts cle parsed : {:?}", requete);
 
     let contacts = {
@@ -532,7 +532,7 @@ async fn requete_get_reference_contacts<M>(middleware: &M, m: MessageValideActio
     };
 
     debug!("requete_get_reference_contacts Message : {:?}", & m.message);
-    let requete: ParametresGetContacts = m.message.get_msg().map_contenu(None)?;
+    let requete: ParametresGetContacts = m.message.get_msg().map_contenu()?;
     debug!("requete_get_reference_contacts cle parsed : {:?}", requete);
 
     let contacts = {
@@ -585,7 +585,7 @@ async fn requete_attachment_requis<M>(middleware: &M, m: MessageValideAction)
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_attachment_requis Message : {:?}", & m.message);
-    let requete: ParametresRequeteAttachmentRequis = m.message.get_msg().map_contenu(None)?;
+    let requete: ParametresRequeteAttachmentRequis = m.message.get_msg().map_contenu()?;
     debug!("requete_attachment_requis parsed : {:?}", requete);
 
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
@@ -614,7 +614,7 @@ async fn requete_usager_acces_attachments<M>(middleware: &M, m: MessageValideAct
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_attachment_requis Message : {:?}", & m.message);
-    let requete: ParametresRequeteUsagerAccesAttachments = m.message.get_msg().map_contenu(None)?;
+    let requete: ParametresRequeteUsagerAccesAttachments = m.message.get_msg().map_contenu()?;
     debug!("requete_attachment_requis parsed : {:?}", requete);
 
     let user_id = match m.get_user_id() {
@@ -658,7 +658,7 @@ async fn requete_get_cles_stream<M>(middleware: &M, m: MessageValideAction, gest
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_cles_stream Message : {:?}", &m.message);
-    let requete: ParametresGetClesStream = m.message.get_msg().map_contenu(None)?;
+    let requete: ParametresGetClesStream = m.message.get_msg().map_contenu()?;
     debug!("requete_get_cles_stream cle parsed : {:?}", requete);
 
     if ! m.verifier_roles(vec![RolesCertificats::Stream]) {
@@ -741,7 +741,7 @@ async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageVa
     where M: GenerateurMessages + MongoDao + VerificateurMessage,
 {
     debug!("requete_get_configuration_notifications Message : {:?}", &m.message);
-    let requete: ParametresGetConfigurationNotifications = m.message.get_msg().map_contenu(None)?;
+    let requete: ParametresGetConfigurationNotifications = m.message.get_msg().map_contenu()?;
     debug!("requete_get_configuration_notifications cle parsed : {:?}", requete);
 
     let filtre = doc!{ CHAMP_CONFIG_KEY: CONFIG_KEY_NOTIFICATIONS };

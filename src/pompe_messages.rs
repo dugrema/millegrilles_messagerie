@@ -66,7 +66,7 @@ pub async fn evenement_pompe_poste<M>(gestionnaire: &GestionnaireMessagerie, mid
 {
     debug!("pompe_messages.evenement_pompe_poste Evenement recu {:?}", m);
     let tx_pompe = gestionnaire.get_tx_pompe();
-    let message: MessagePompe = m.message.parsed.map_contenu(None)?;
+    let message: MessagePompe = m.message.parsed.map_contenu()?;
     tx_pompe.send(message).await?;
 
     Ok(None)
@@ -476,7 +476,7 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     let reponse: ReponseRecevoirMessages = match middleware.transmettre_commande(routage, &commande, true).await? {
         Some(r) => match r {
             TypeMessage::Valide(m) => {
-                m.message.parsed.map_contenu(None)?
+                m.message.parsed.map_contenu()?
             },
             _ => Err(format!("pompe_messages.pousser_message_local Erreur traitement recevoir message {} pour idmg local {} - mauvais type reponse traitemnet de transaction", uuid_transaction, idmg_local))?
         },
@@ -812,7 +812,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
                 let fiches_applications: ReponseFichesApplications  = match middleware.transmettre_requete(routage_requete, &requete).await? {
                     TypeMessage::Valide(r) => {
                         debug!("pousser_message_vers_tiers Reponse applications : {:?}", r);
-                        Ok(r.message.parsed.map_contenu(None)?)
+                        Ok(r.message.parsed.map_contenu()?)
                     },
                     _ => Err(format!("pompe_messages.pousser_message_vers_tiers Requete applicationsTiers, reponse de mauvais type"))
                 }?;

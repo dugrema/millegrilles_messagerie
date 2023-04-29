@@ -117,7 +117,7 @@ pub async fn evenement_fichier_consigne<M>(gestionnaire: &GestionnaireMessagerie
 {
     debug!("evenement_fichier_consigne Evenement recu {:?}", m);
     let tx_pompe = gestionnaire.get_tx_pompe();
-    let message: EvenementFichiersConsigne = m.message.parsed.map_contenu(None)?;
+    let message: EvenementFichiersConsigne = m.message.parsed.map_contenu()?;
     debug!("evenement_fichier_consigne parsed {:?}", message);
 
     let filtre = doc!{
@@ -149,7 +149,7 @@ async fn evenement_confirmer_etat_fuuids<M>(middleware: &M, m: MessageValideActi
     }
 
     debug!("evenement_confirmer_etat_fuuids Message : {:?}", & m.message);
-    let evenement: EvenementConfirmerEtatFuuids = m.message.get_msg().map_contenu(None)?;
+    let evenement: EvenementConfirmerEtatFuuids = m.message.get_msg().map_contenu()?;
     debug!("evenement_confirmer_etat_fuuids parsed : {:?}", evenement);
 
     repondre_fuuids(middleware, &evenement.fuuids).await?;

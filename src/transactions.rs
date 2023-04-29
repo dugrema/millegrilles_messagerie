@@ -76,6 +76,11 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         M: ValidateurX509 + GenerateurMessages + MongoDao,
         T: Transaction
 {
+    let action = match transaction.get_routage().action.as_ref() {
+        Some(inner) => inner.as_str(),
+        None => Err(format!("transactions.aiguillage_transaction: Transaction {} n'a pas d'action", transaction.get_uuid_transaction()))?
+    };
+
     match transaction.get_action() {
         TRANSACTION_POSTER => transaction_poster(gestionnaire, middleware, transaction).await,
         TRANSACTION_RECEVOIR => transaction_recevoir(gestionnaire, middleware, transaction).await,
@@ -91,7 +96,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS => sauvegarder_usager_config_notifications(gestionnaire, middleware, transaction).await,
         TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH => sauvegarder_subscription_webpush(gestionnaire, middleware, transaction).await,
         TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH => retirer_subscription_webpush(gestionnaire, middleware, transaction).await,
-        _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), transaction.get_action())),
+        _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), action)),
     }
 }
 
@@ -255,7 +260,7 @@ pub async fn emettre_requete_resolve<M>(middleware: &M, uuid_transaction: &str, 
     match reponse {
         TypeMessage::Valide(r) => {
             debug!("Reponse resolve idmg : {:?}", r);
-            let contenu: ReponseTopologieResolveIdmg = r.message.parsed.map_contenu(None)?;
+            let contenu: ReponseTopologieResolveIdmg = r.message.parsed.map_contenu()?;
             debug!("Reponse resolve idmg contenu parsed : {:?}", contenu);
             traiter_outgoing_resolved(middleware, &contenu).await?;
         },
@@ -331,13 +336,13 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     }?;
 
     // Valider message qui est potentiellement d'une millegrille tierce
-    let message_enveloppe: DocumentMessage = match message_recevoir_serialise.parsed.map_contenu(None) {
+    let message_enveloppe: DocumentMessage = match message_recevoir_serialise.parsed.map_contenu() {
         Ok(m) => Ok(m),
         Err(e) => Err(format!("transactions.transaction_recevoir Erreur durant conversion message vers TransactionPoster : {:?}", e))
     }?;
     let idmg_local = middleware.get_enveloppe_signature().idmg()?;
     let idmg_message = message_recevoir_serialise.get_entete().idmg.as_str();
-    let uuid_message = message_recevoir_serialise.get_entete().uuid_transaction.clone();
+    let uuid_message = message_recevoir_serialise.parsed.id.clone();
     let certificat_millegrille_pem = message_recevoir_serialise.parsed.millegrille.clone();
 
     let message_local = idmg_local.as_str() == idmg_message;
