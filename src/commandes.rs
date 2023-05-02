@@ -412,30 +412,22 @@ async fn commande_maj_contact<M>(middleware: &M, m: MessageValideAction, gestion
     let commande: Contact = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_maj_contact Commande nouvelle versions parsed : {:?}", commande);
 
-    todo!("fix me");
-    // {
-    //     let version_commande = m.message.get_entete().version;
-    //     if version_commande != 1 {
-    //         Err(format!("commandes.commande_initialiser_profil: Version non supportee {:?}", version_commande))?
-    //     }
-    // }
-    //
-    // let user_id = match m.get_user_id() {
-    //     Some(u) => u,
-    //     None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
-    // };
-    // // Autorisation: Action usager avec compte prive ou delegation globale
-    // let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-    // if role_prive {
-    //     // Ok
-    // } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-    //     // Ok
-    // } else {
-    //     Err(format!("commandes.commande_initialiser_profil: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-    // }
-    //
-    // // Traiter la transaction
-    // Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    let user_id = match m.get_user_id() {
+        Some(u) => u,
+        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
+    };
+    // Autorisation: Action usager avec compte prive ou delegation globale
+    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    if role_prive {
+        // Ok
+    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+        // Ok
+    } else {
+        Err(format!("commandes.commande_initialiser_profil: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    }
+
+    // Traiter la transaction
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
 async fn commande_lu<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
