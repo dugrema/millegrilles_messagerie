@@ -102,8 +102,9 @@ impl AdresseMessagerie {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandePoster {
-    pub message: DocumentMessage,
+    pub message: MessageMilleGrille,
     pub destinataires: Vec<String>,
+    pub fuuids: Option<Vec<String>>,
 }
 
 impl CommandePoster {

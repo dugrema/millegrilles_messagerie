@@ -536,7 +536,7 @@ async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(M
         Err(e) => Err(format!("pompe_messages.charger_message Erreur chargement transaction message : {:?}", e))
     }?;
 
-    let fingerprint = message_mappe.message.fingerprint_certificat.as_str();
+    let fingerprint = message_mappe.message.pubkey.as_str();
     let pems = match middleware.get_certificat(fingerprint).await {
         Some(c) => {
             let pems: Vec<String> = c.get_pem_vec().into_iter().map(|c| c.pem).collect();
@@ -756,167 +756,168 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
 
     // Charger certificat utilise dans le message
     let certificat_message: Vec<String> = {
-        let fingerprint = message_mappe.message.fingerprint_certificat.as_str();
+        let fingerprint = message_mappe.message.pubkey.as_str();
         match middleware.get_certificat(fingerprint).await {
             Some(c) => Ok(c.get_pem_vec().iter().map(|p| p.pem.clone()).collect()),
             None => Err(format!("pompe_messages.pousser_message_vers_tiers Certificat {} manquant pour message {}", fingerprint, uuid_message))
         }
     }?;
 
-    // Recuperer cle du message
-    let hachage_bytes = vec![message_mappe.message.get_ref_cle()?.to_owned()];
-    let cle_message = requete_charger_cles(middleware, &hachage_bytes).await?;
-    debug!("Recu cle message rechiffree : {:?}", cle_message);
-    let cle_message_info = match &cle_message.cles {
-        Some(c) => {
-            match c.get(message_mappe.message.get_ref_cle()?) {
-                Some(c) => Ok(c),
-                None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante dans reponse MaitreDesCles pour message {}", uuid_message))
-            }
-        },
-        None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante pour message {}", uuid_message))
-    }?;
-    let cle_message_str = cle_message_info.cle.as_str();
-    let enveloppe_privee = middleware.get_enveloppe_signature();
-    let cle_privee = enveloppe_privee.cle_privee();
-
-    let ts_courant = Utc::now();
-
-    let mapping: Vec<IdmgMappingDestinataires> = {
-        let mut mapping = Vec::new();
-        match message.idmgs_mapping.as_ref() {
-            Some(mappings) => {
-                let idmgs_unprocessed = match &message.idmgs_unprocessed {
-                    Some(i) => i,
-                    None => {
-                        info!("pousser_message_vers_tiers Traitement d'un message ({}) avec aucuns idmgs unprocessed, ignorer.", uuid_transaction);
-                        return Ok(())
-                    }  // Rien a faire
-                };
-
-                // Faire liste des idmgs qui ne sont pas encore traites
-                let mut set_idmgs = HashSet::new();
-                for idmg in mappings.keys() {
-                    if idmg == idmg_local { continue; } // Skip local
-                    if idmgs_unprocessed.contains(idmg) {
-                        set_idmgs.insert(idmg.clone());
-                    }
-                }
-
-                // Recuperer mapping de l'application messagerie pour chaque idmg
-                let routage_requete = RoutageMessageAction::builder("CoreTopologie", "applicationsTiers")
-                    .exchanges(vec![L2Prive])
-                    .build();
-                let requete = json!({"idmgs": &set_idmgs, "application": "messagerie_web"});
-                debug!("pousser_message_vers_tiers Resolve idmgs avec CoreTopologie: {:?}", requete);
-                let fiches_applications: ReponseFichesApplications  = match middleware.transmettre_requete(routage_requete, &requete).await? {
-                    TypeMessage::Valide(r) => {
-                        debug!("pousser_message_vers_tiers Reponse applications : {:?}", r);
-                        Ok(r.message.parsed.map_contenu()?)
-                    },
-                    _ => Err(format!("pompe_messages.pousser_message_vers_tiers Requete applicationsTiers, reponse de mauvais type"))
-                }?;
-                debug!("pousser_message_vers_tiers Reponse applications mappees : {:?}", fiches_applications);
-
-                for fiche in fiches_applications.fiches {
-                    let idmg = fiche.idmg.as_str();
-
-                    // Incrementer compteur, mettre next push a 15 minutes (en cas d'echec)
-                    incrementer_push(middleware, idmg, uuid_transaction).await?;
-
-                    let doc_mapping_idmg = match mappings.get(idmg) {
-                        Some(d) => d,
-                        None => continue  // Rien a faire
-                    };
-
-                    // Verifier si on doit attendre
-                    match doc_mapping_idmg.next_push_time {
-                        Some(t) => {
-                            if t > ts_courant {
-                                debug!("Skip {} pour {}, on doit attendre l'expiration de next_push_time a {:?}", uuid_transaction, idmg, t);
-                                continue
-                            }
-                        },
-                        None => ()
-                    }
-
-                    // Rechiffrer la cle du message
-                    let mut certs_chiffrage = match fiche.chiffrage.clone() {
-                        Some(c) => c,
-                        None => {
-                            info!("Certificat de chiffrage manquant pour {}, on skip", idmg);
-                            continue;
-                        }
-                    };
-                    let ca_pem = match &fiche.ca {
-                        Some(c) => {
-                            // Injecter dans la liste des certs_chiffrage (cle de millegrille)
-                            certs_chiffrage.push(vec![c.clone()]);
-                            c
-                        },
-                        None => {
-                            info!("Certificat CA manquant pour {}, on skip", idmg);
-                            continue
-                        }
-                    };
-
-                    let mut cles_rechiffrees = HashMap::new();
-                    for cert_chiffrage in &certs_chiffrage {
-                        let cert = middleware.charger_enveloppe(
-                            cert_chiffrage, None, Some(ca_pem.as_str())).await?;
-                        let fingerprint = cert.fingerprint.clone();
-                        let cle_publique = &cert.cle_publique;
-                        let cle_rechiffree = match rechiffrer_asymetrique_multibase(
-                            cle_privee, cle_publique, cle_message_str) {
-                            Ok(k) => k,
-                            Err(e) => {
-                                error!("Erreur rechiffrage cle message {} pour idmg {}", uuid_message, idmg);
-                                continue
-                            }
-                        };
-                        cles_rechiffrees.insert(fingerprint, cle_rechiffree);
-                    }
-
-                    debug!("Cles rechiffrees pour idmg {}: {:?}", idmg, cles_rechiffrees);
-
-                    let destinataires = {
-                        let mut destinataires = mapper_destinataires(message, doc_mapping_idmg);
-                        destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
-                    };
-
-                    let mapping_idmg = IdmgMappingDestinataires {
-                        idmg: idmg.to_owned(),
-                        mapping: doc_mapping_idmg.to_owned(),
-                        destinataires,
-                        fiche,
-                        cles: cles_rechiffrees,
-                    };
-
-                    mapping.push(mapping_idmg);
-                }
-
-            },
-            None => Err(format!("pompe_message.pousser_message_vers_tiers Aucun mapping tiers"))?
-        }
-        mapping
-    };
-
-    // Emettre commande recevoir
-    let commande = CommandePostmasterPoster{
-        message: message_a_transmettre,
-        destinations: mapping,
-        cle_info: cle_message_info.clone().into(),
-        certificat_message,
-        certificat_millegrille: middleware.ca_pem().into(),
-    };
-    debug!("pousser_message_vers_tiers Pousser message vers tiers {:?}", commande);
-
-    let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, "poster")
-        .exchanges(vec![L1Public])
-        .build();
-    middleware.transmettre_commande(routage, &commande, false).await?;
-
-    Ok(())
+    todo!("fix me");
+    // // Recuperer cle du message
+    // let hachage_bytes = vec![message_mappe.message.get_ref_cle()?.to_owned()];
+    // let cle_message = requete_charger_cles(middleware, &hachage_bytes).await?;
+    // debug!("Recu cle message rechiffree : {:?}", cle_message);
+    // let cle_message_info = match &cle_message.cles {
+    //     Some(c) => {
+    //         match c.get(message_mappe.message.get_ref_cle()?) {
+    //             Some(c) => Ok(c),
+    //             None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante dans reponse MaitreDesCles pour message {}", uuid_message))
+    //         }
+    //     },
+    //     None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante pour message {}", uuid_message))
+    // }?;
+    // let cle_message_str = cle_message_info.cle.as_str();
+    // let enveloppe_privee = middleware.get_enveloppe_signature();
+    // let cle_privee = enveloppe_privee.cle_privee();
+    //
+    // let ts_courant = Utc::now();
+    //
+    // let mapping: Vec<IdmgMappingDestinataires> = {
+    //     let mut mapping = Vec::new();
+    //     match message.idmgs_mapping.as_ref() {
+    //         Some(mappings) => {
+    //             let idmgs_unprocessed = match &message.idmgs_unprocessed {
+    //                 Some(i) => i,
+    //                 None => {
+    //                     info!("pousser_message_vers_tiers Traitement d'un message ({}) avec aucuns idmgs unprocessed, ignorer.", uuid_transaction);
+    //                     return Ok(())
+    //                 }  // Rien a faire
+    //             };
+    //
+    //             // Faire liste des idmgs qui ne sont pas encore traites
+    //             let mut set_idmgs = HashSet::new();
+    //             for idmg in mappings.keys() {
+    //                 if idmg == idmg_local { continue; } // Skip local
+    //                 if idmgs_unprocessed.contains(idmg) {
+    //                     set_idmgs.insert(idmg.clone());
+    //                 }
+    //             }
+    //
+    //             // Recuperer mapping de l'application messagerie pour chaque idmg
+    //             let routage_requete = RoutageMessageAction::builder("CoreTopologie", "applicationsTiers")
+    //                 .exchanges(vec![L2Prive])
+    //                 .build();
+    //             let requete = json!({"idmgs": &set_idmgs, "application": "messagerie_web"});
+    //             debug!("pousser_message_vers_tiers Resolve idmgs avec CoreTopologie: {:?}", requete);
+    //             let fiches_applications: ReponseFichesApplications  = match middleware.transmettre_requete(routage_requete, &requete).await? {
+    //                 TypeMessage::Valide(r) => {
+    //                     debug!("pousser_message_vers_tiers Reponse applications : {:?}", r);
+    //                     Ok(r.message.parsed.map_contenu()?)
+    //                 },
+    //                 _ => Err(format!("pompe_messages.pousser_message_vers_tiers Requete applicationsTiers, reponse de mauvais type"))
+    //             }?;
+    //             debug!("pousser_message_vers_tiers Reponse applications mappees : {:?}", fiches_applications);
+    //
+    //             for fiche in fiches_applications.fiches {
+    //                 let idmg = fiche.idmg.as_str();
+    //
+    //                 // Incrementer compteur, mettre next push a 15 minutes (en cas d'echec)
+    //                 incrementer_push(middleware, idmg, uuid_transaction).await?;
+    //
+    //                 let doc_mapping_idmg = match mappings.get(idmg) {
+    //                     Some(d) => d,
+    //                     None => continue  // Rien a faire
+    //                 };
+    //
+    //                 // Verifier si on doit attendre
+    //                 match doc_mapping_idmg.next_push_time {
+    //                     Some(t) => {
+    //                         if t > ts_courant {
+    //                             debug!("Skip {} pour {}, on doit attendre l'expiration de next_push_time a {:?}", uuid_transaction, idmg, t);
+    //                             continue
+    //                         }
+    //                     },
+    //                     None => ()
+    //                 }
+    //
+    //                 // Rechiffrer la cle du message
+    //                 let mut certs_chiffrage = match fiche.chiffrage.clone() {
+    //                     Some(c) => c,
+    //                     None => {
+    //                         info!("Certificat de chiffrage manquant pour {}, on skip", idmg);
+    //                         continue;
+    //                     }
+    //                 };
+    //                 let ca_pem = match &fiche.ca {
+    //                     Some(c) => {
+    //                         // Injecter dans la liste des certs_chiffrage (cle de millegrille)
+    //                         certs_chiffrage.push(vec![c.clone()]);
+    //                         c
+    //                     },
+    //                     None => {
+    //                         info!("Certificat CA manquant pour {}, on skip", idmg);
+    //                         continue
+    //                     }
+    //                 };
+    //
+    //                 let mut cles_rechiffrees = HashMap::new();
+    //                 for cert_chiffrage in &certs_chiffrage {
+    //                     let cert = middleware.charger_enveloppe(
+    //                         cert_chiffrage, None, Some(ca_pem.as_str())).await?;
+    //                     let fingerprint = cert.fingerprint.clone();
+    //                     let cle_publique = &cert.cle_publique;
+    //                     let cle_rechiffree = match rechiffrer_asymetrique_multibase(
+    //                         cle_privee, cle_publique, cle_message_str) {
+    //                         Ok(k) => k,
+    //                         Err(e) => {
+    //                             error!("Erreur rechiffrage cle message {} pour idmg {}", uuid_message, idmg);
+    //                             continue
+    //                         }
+    //                     };
+    //                     cles_rechiffrees.insert(fingerprint, cle_rechiffree);
+    //                 }
+    //
+    //                 debug!("Cles rechiffrees pour idmg {}: {:?}", idmg, cles_rechiffrees);
+    //
+    //                 let destinataires = {
+    //                     let mut destinataires = mapper_destinataires(message, doc_mapping_idmg);
+    //                     destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
+    //                 };
+    //
+    //                 let mapping_idmg = IdmgMappingDestinataires {
+    //                     idmg: idmg.to_owned(),
+    //                     mapping: doc_mapping_idmg.to_owned(),
+    //                     destinataires,
+    //                     fiche,
+    //                     cles: cles_rechiffrees,
+    //                 };
+    //
+    //                 mapping.push(mapping_idmg);
+    //             }
+    //
+    //         },
+    //         None => Err(format!("pompe_message.pousser_message_vers_tiers Aucun mapping tiers"))?
+    //     }
+    //     mapping
+    // };
+    //
+    // // Emettre commande recevoir
+    // let commande = CommandePostmasterPoster{
+    //     message: message_a_transmettre,
+    //     destinations: mapping,
+    //     cle_info: cle_message_info.clone().into(),
+    //     certificat_message,
+    //     certificat_millegrille: middleware.ca_pem().into(),
+    // };
+    // debug!("pousser_message_vers_tiers Pousser message vers tiers {:?}", commande);
+    //
+    // let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, "poster")
+    //     .exchanges(vec![L1Public])
+    //     .build();
+    // middleware.transmettre_commande(routage, &commande, false).await?;
+    //
+    // Ok(())
 }
 
 async fn incrementer_push<M>(middleware: &M, idmg: &str, uuid_transaction: &str) -> Result<(), Box<dyn Error>>

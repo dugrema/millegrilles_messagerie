@@ -14,7 +14,6 @@ use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
 use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, MessageReponse, TransactionRetirerSubscriptionWebpush};
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::constantes::Securite::{L2Prive, L3Protege};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
@@ -98,44 +97,77 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
     }
 }
 
-async fn commande_poster<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+async fn commande_poster<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
+    let attachements = m.message.parsed.attachements.take();
+
     debug!("commande_poster Consommer commande : {:?}", & m.message);
     let commande: CommandePoster = m.message.get_msg().map_contenu()?;
     debug!("Commande nouvelle versions parsed : {:?}", commande);
 
-    todo!("fix me");
-    // {
-    //     let version_commande = m.message.get_entete().version;
-    //     if version_commande != 1 {
-    //         Err(format!("commandes.commande_poster: Version non supportee {:?}", version_commande))?
-    //     }
-    // }
-    //
-    // let user_id = m.get_user_id();
-    // match m.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
-    //     true => {
-    //         // Compte systeme
-    //     },
-    //     false => {
-    //         // Autorisation: Action usager avec compte prive ou delegation globale
-    //         let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-    //         if role_prive && user_id.is_some() {
-    //             // Ok
-    //         } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-    //             // Ok
-    //         } else {
-    //             Err(format!("commandes.commande_poster: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-    //         }
-    //     }
-    // }
-    //
-    // // TODO Valider message
-    //
-    // // Traiter la transaction
-    // Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    let user_id = m.get_user_id();
+    match m.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
+        true => {
+            // Compte systeme
+        },
+        false => {
+            // Autorisation: Action usager avec compte prive ou delegation globale
+            let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+            if role_prive && user_id.is_some() {
+                // Ok
+            } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+                // Ok
+            } else {
+                Err(format!("commandes.commande_poster: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+            }
+        }
+    }
+
+    // Sauvegarer la cle
+    match attachements {
+        Some(mut attachements) => {
+            match attachements.remove("cle") {
+                Some(mut cle) => {
+                    let mut cle_message: MessageMilleGrille = serde_json::from_value(cle)?;
+                    let partition = match cle_message.attachements.take() {
+                        Some(mut inner) => match inner.remove("partition") {
+                            Some(inner) => match inner.as_str() {
+                                Some(partition) => partition.to_owned(),
+                                None => Err(format!("commandes.commande_poster: Erreur sauvegarde cle (pas string) pour message {:?}", m.correlation_id))?
+                            },
+                            None => Err(format!("commandes.commande_poster: Erreur sauvegarde cle (absente) pour message {:?}", m.correlation_id))?
+                        },
+                        None => Err(format!("commandes.commande_poster: Erreur sauvegarde cle (attachements cle absents) pour message {:?}", m.correlation_id))?
+                    };
+                    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                        .exchanges(vec![Securite::L3Protege])
+                        .partition(partition)
+                        .build();
+                    debug!("commandes.commande_poster: Sauvegarder cle message aupres de {:?} : {:?}", routage, cle_message);
+                    let reponse = middleware.emettre_message_millegrille(routage, true, TypeMessageOut::Commande, cle_message).await?;
+                    if let Some(TypeMessage::Valide(reponse)) = reponse {
+                        debug!("commandes.commande_poster Reponse sauvegarde cle : {:?}", reponse);
+                        let resultat: MessageReponse = reponse.message.parsed.map_contenu()?;
+                        if let Some(true) = resultat.ok {
+                            // Ok
+                            debug!("commandes.commande_poster Sauvegarde cle OK");
+                        } else {
+                            Err(format!("commandes.commande_poster: Erreur sauvegarde cle (ok==false) pour message {:?}", m.correlation_id))?
+                        }
+                    } else {
+                        Err(format!("commandes.commande_poster: Erreur sauvegarde cle pour message {:?}", m.correlation_id))?
+                    }
+                },
+                None => Err(format!("commandes.commande_poster: Cle manquante des attachements pour message {:?}", m.correlation_id))?
+            }
+        },
+        None => Err(format!("commandes.commande_poster: Attachements vides (cle manquante) pour message {:?}", m.correlation_id))?
+    }
+
+    // Traiter la transaction
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
 async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -752,7 +784,7 @@ async fn commande_fuuid_verifier_existance<M>(middleware: &M, m: MessageValideAc
 
     // Faire requete vers fichiers
     let routage = RoutageMessageAction::builder("fichiers", "fuuidVerifierExistance")
-        .exchanges(vec![L2Prive])
+        .exchanges(vec![Securite::L2Prive])
         .build();
     let requete = json!({"fuuids": &commande.fuuids});
     let reponse = middleware.transmettre_requete(routage, &requete).await?;
