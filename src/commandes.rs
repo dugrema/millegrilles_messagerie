@@ -12,7 +12,7 @@ use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509,
 use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
-use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, TransactionRetirerSubscriptionWebpush};
+use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, MessageReponse, TransactionRetirerSubscriptionWebpush};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::{L2Prive, L3Protege};
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
@@ -370,7 +370,17 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
             .exchanges(vec![Securite::L4Secure])
             .build();
         debug!("commande_initialiser_profil Sauvegarder cle {:?}", cle_profil);
-        middleware.transmettre_commande(routage, &cle_profil, true).await?;
+        if let Some(TypeMessage::Valide(reponse)) = middleware.transmettre_commande(routage, &cle_profil, true).await? {
+            debug!("commande_initialiser_profil Sauvegarder cle resultat : {:?}", reponse);
+            let valeur_reponse: MessageReponse = reponse.message.parsed.map_contenu()?;
+            if let Some(true) = valeur_reponse.ok {
+                // Ok
+            } else {
+                Err(format!("commandes.commande_initialiser_profil Erreur sauvegarder cle, reponse ok=false"))?;
+            }
+        } else {
+            Err(format!("commandes.commande_initialiser_profil Erreur sauvegarder cle, aucune reponse/reponse invalide"))?;
+        }
         cle_profil
     };
 
@@ -381,7 +391,9 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
         cle_ref_hachage_bytes: cle_profil.hachage_bytes
     };
     let transaction = middleware.formatter_message(
-        MessageKind::Transaction, &transaction, Some(DOMAINE_NOM), Some(m.action.as_str()), None, None, false)?;
+        MessageKind::Transaction, &transaction,
+        Some(DOMAINE_NOM), Some(m.action.as_str()), None,
+        None, false)?;
     let mut transaction = MessageValideAction::from_message_millegrille(
         transaction, TypeMessageOut::Transaction)?;
 
