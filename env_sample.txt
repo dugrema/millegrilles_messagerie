@@ -1,0 +1,13 @@
+Run millegrilles_messagerie
+
+run --package millegrilles_messagerie --bin millegrilles_messagerie
+
+CAFILE=/var/opt/millegrilles/configuration/pki.millegrille.cert
+CERTFILE=/var/opt/millegrilles/secrets/pki.messagerie_backend.cert
+KEYFILE=/var/opt/millegrilles/secrets/pki.messagerie_backend.cle
+MG_MONGO_HOST=localhost
+MG_MQ_HOST=localhost
+MG_NOEUD_ID=DUMMY-DEV1
+MG_REDIS_PASSWORD_FILE=/var/opt/millegrilles/secrets/passwd.redis.txt
+MG_REDIS_URL=rediss://client_rust@localhost:6379#insecure
+RUST_LOG=warn,millegrilles_messagerie::requetes=debug,millegrilles_messagerie::pompe_messages=debug,millegrilles_messagerie::commandes=debug,millegrilles_messagerie::transactions=debug

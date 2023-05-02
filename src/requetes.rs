@@ -198,7 +198,7 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
 
     let date_max = match requete.date_maximum {
         Some(inner) => inner,
-        None => m.message.get_entete().estampille.clone()
+        None => m.message.parsed.estampille.clone()
     };
 
     let supprime = match requete.supprime { Some(b) => b, None => false };

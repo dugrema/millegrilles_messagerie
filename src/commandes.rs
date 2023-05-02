@@ -15,7 +15,7 @@ use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
 use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, TransactionRetirerSubscriptionWebpush};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::{L2Prive, L3Protege};
-use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille, MessageSerialise};
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao, verifier_erreur_duplication_mongo};
@@ -106,35 +106,36 @@ async fn commande_poster<M>(middleware: &M, m: MessageValideAction, gestionnaire
     let commande: CommandePoster = m.message.get_msg().map_contenu()?;
     debug!("Commande nouvelle versions parsed : {:?}", commande);
 
-    {
-        let version_commande = m.message.get_entete().version;
-        if version_commande != 1 {
-            Err(format!("commandes.commande_poster: Version non supportee {:?}", version_commande))?
-        }
-    }
-
-    let user_id = m.get_user_id();
-    match m.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
-        true => {
-            // Compte systeme
-        },
-        false => {
-            // Autorisation: Action usager avec compte prive ou delegation globale
-            let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-            if role_prive && user_id.is_some() {
-                // Ok
-            } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-                // Ok
-            } else {
-                Err(format!("commandes.commande_poster: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-            }
-        }
-    }
-
-    // TODO Valider message
-
-    // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    todo!("fix me");
+    // {
+    //     let version_commande = m.message.get_entete().version;
+    //     if version_commande != 1 {
+    //         Err(format!("commandes.commande_poster: Version non supportee {:?}", version_commande))?
+    //     }
+    // }
+    //
+    // let user_id = m.get_user_id();
+    // match m.verifier_exchanges(vec!(Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
+    //     true => {
+    //         // Compte systeme
+    //     },
+    //     false => {
+    //         // Autorisation: Action usager avec compte prive ou delegation globale
+    //         let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    //         if role_prive && user_id.is_some() {
+    //             // Ok
+    //         } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    //             // Ok
+    //         } else {
+    //             Err(format!("commandes.commande_poster: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    //         }
+    //     }
+    // }
+    //
+    // // TODO Valider message
+    //
+    // // Traiter la transaction
+    // Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
 async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -145,182 +146,183 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     let mut commande: CommandeRecevoirPost = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_recevoir Commande nouvelle versions parsed : {:?}", commande);
 
-    {
-        let version_commande = m.message.get_entete().version;
-        if version_commande != 1 {
-            Err(format!("commandes.commande_recevoir: Version non supportee {:?}", version_commande))?
-        }
-    }
-
-    let user_id = m.get_user_id();
-    match m.verifier_exchanges(vec!(Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
-        true => {
-            // Compte systeme
-        },
-        false => {
-            // Autorisation: Action usager avec compte prive ou delegation globale
-            let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-            if role_prive && user_id.is_some() {
-                // Ok
-            } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-                // Ok
-            } else {
-                Err(format!("commandes.commande_recevoir: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-            }
-        }
-    }
-
-    let cert_millegrille_pem = match commande.message.get("_millegrille") {
-        Some(c) => {
-            debug!("commande_recevoir Utiliser certificat de millegrille pour valider : {:?}", c);
-            let millegrille_pem: String = serde_json::from_value(c.to_owned())?;
-            Some(millegrille_pem)
-        },
-        None => {
-            debug!("commande_recevoir Aucun certificat de millegrille pour valider");
-            None
-        }
-    };
-
-    let enveloppe_cert: Arc<EnveloppeCertificat> = match commande.message.get("_certificat") {
-        Some(c) => {
-            let certificat_pem: Vec<String> = serde_json::from_value(c.to_owned())?;
-            match cert_millegrille_pem.as_ref() {
-                Some(c) => middleware.charger_enveloppe(&certificat_pem, None, Some(c.as_str())).await?,
-                None => {
-                    // Millegrille locale, charger le certificat fourni
-                    middleware.charger_enveloppe(&certificat_pem, None, None).await?
-                }
-            }
-        },
-        None => {
-            error!("commande_recevoir Erreur _certificat manquant");
-            let reponse_erreur = json!({"ok": false, "err": "Erreur, _certificat manquant"});
-            return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
-        }
-    };
-
-    {
-        let mut message = MessageSerialise::from_serializable(&commande.message)?;
-        debug!("Valider message avec certificat {:?}", enveloppe_cert);
-        message.set_certificat(enveloppe_cert);
-
-        match cert_millegrille_pem.as_ref() {
-            Some(c) => {
-                let cert = middleware.charger_enveloppe(&vec![c.to_owned()], None, None).await?;
-                message.set_millegrille(cert);
-            },
-            None => ()
-        }
-
-        let options_validation = ValidationOptions::new(true, true, true);
-        match middleware.verifier_message(&mut message, Some(&options_validation)) {
-            Ok(resultat) => {
-                if !resultat.valide() {
-                    error!("commande_recevoir Erreur validation message : {:?}", resultat);
-                    let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", resultat)});
-                    return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
-                }
-            },
-            Err(e) => {
-                error!("commande_recevoir Erreur validation message : {:?}", e);
-                let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", e)});
-                return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
-            }
-        }
-    }
-
-    // Resolve users
-    let destinataires = {
-        let mut destinataires_user_id = match commande.destinataires_user_id {
-            Some(inner) => inner.clone(),
-            None => Vec::new()
-        };
-
-        let mut destinataires_adresse_user = Vec::new();
-        for adresse in &commande.destinataires {
-            debug!("Resolve destinataire {}", adresse);
-            match AdresseMessagerie::new(adresse.as_str()) {
-                Ok(a) => destinataires_adresse_user.push(a.user),
-                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
-            }
-        }
-        let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
-            .exchanges(vec![Securite::L4Secure])
-            .build();
-        let requete = json!({"noms_usagers": destinataires_adresse_user});
-        debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
-        let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
-        debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
-        let reponse_mappee: ReponseUseridParNomUsager = match reponse {
-            TypeMessage::Valide(m) => {
-                match m.message.parsed.map_contenu() {
-                    Ok(m) => m,
-                    Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
-                }
-            },
-            _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
-        };
-
-        // for (username, user_id) in reponse_mappee.usagers {
-        //     destinataires_user_id.push(DestinataireInfo{adresse: Some(adresse), user_id});
-        // }
-
-        for adresse in &commande.destinataires {
-            debug!("Resolve destinataire {}", adresse);
-            match AdresseMessagerie::new(adresse.as_str()) {
-                Ok(a) => {
-                    let user_id_option = reponse_mappee.usagers.get(a.user.as_str());
-                    if let Some(uo) = user_id_option {
-                        destinataires_user_id.push(DestinataireInfo{
-                            adresse: Some(adresse.to_owned()),
-                            user_id: uo.to_owned()
-                        })
-                    }
-                    // destinataires_user_id.push(DestinataireInfo{adresse: Some(adresse), user_id})
-                    // destinataires_adresse_user.push(a.user),
-                },
-                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
-            }
-        }
-
-        destinataires_user_id
-    };
-
-    if let Some(cle) = commande.cle.take() {
-        debug!("Sauvegarder cle : {:?}", cle);
-        if let Some(p) = cle.partition.as_ref() {
-            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-                .exchanges(vec![Securite::L3Protege])
-                .partition(p.to_owned())
-                .build();
-            let reponse = middleware.transmettre_commande(routage, &cle, true).await?;
-            debug!("Reponse commande sauvegarder cle {:?}", reponse);
-        } else {
-            Err(format!("commandes.recevoir Erreur sauvegarde cle - partition n'est pas fournie"))?
-        }
-    }
-
-    // let destinataires_user_id: Vec<String> = reponse_mappee.usagers.iter().filter_map(|v| v.1.to_owned()).collect();
-    // let mut message_contenu = commande.message;
-    // message_contenu.insert("destinataires_user_id".to_string(), Value::from(destinataires_user_id));
-
-    // let message = MessageSerialise::from_serializable(&message_contenu)?;
-
-    // Cleanup, retirer certificat du message (stocke externe)
-    commande.message.remove("_certificat");
-
-    let commande_maj = CommandeRecevoirPost {
-        message: commande.message,
-        destinataires: commande.destinataires,
-        destinataires_user_id: Some(destinataires),
-        cle: None
-    };
-
-    // Traiter la transaction
-    //Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-    Ok(sauvegarder_traiter_transaction_serializable(
-        middleware, &commande_maj, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?)
+    todo!("fix me");
+    // {
+    //     let version_commande = m.message.get_entete().version;
+    //     if version_commande != 1 {
+    //         Err(format!("commandes.commande_recevoir: Version non supportee {:?}", version_commande))?
+    //     }
+    // }
+    //
+    // let user_id = m.get_user_id();
+    // match m.verifier_exchanges(vec!(Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
+    //     true => {
+    //         // Compte systeme
+    //     },
+    //     false => {
+    //         // Autorisation: Action usager avec compte prive ou delegation globale
+    //         let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    //         if role_prive && user_id.is_some() {
+    //             // Ok
+    //         } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    //             // Ok
+    //         } else {
+    //             Err(format!("commandes.commande_recevoir: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    //         }
+    //     }
+    // }
+    //
+    // let cert_millegrille_pem = match commande.message.get("_millegrille") {
+    //     Some(c) => {
+    //         debug!("commande_recevoir Utiliser certificat de millegrille pour valider : {:?}", c);
+    //         let millegrille_pem: String = serde_json::from_value(c.to_owned())?;
+    //         Some(millegrille_pem)
+    //     },
+    //     None => {
+    //         debug!("commande_recevoir Aucun certificat de millegrille pour valider");
+    //         None
+    //     }
+    // };
+    //
+    // let enveloppe_cert: Arc<EnveloppeCertificat> = match commande.message.get("_certificat") {
+    //     Some(c) => {
+    //         let certificat_pem: Vec<String> = serde_json::from_value(c.to_owned())?;
+    //         match cert_millegrille_pem.as_ref() {
+    //             Some(c) => middleware.charger_enveloppe(&certificat_pem, None, Some(c.as_str())).await?,
+    //             None => {
+    //                 // Millegrille locale, charger le certificat fourni
+    //                 middleware.charger_enveloppe(&certificat_pem, None, None).await?
+    //             }
+    //         }
+    //     },
+    //     None => {
+    //         error!("commande_recevoir Erreur _certificat manquant");
+    //         let reponse_erreur = json!({"ok": false, "err": "Erreur, _certificat manquant"});
+    //         return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+    //     }
+    // };
+    //
+    // {
+    //     let mut message = MessageSerialise::from_serializable(&commande.message)?;
+    //     debug!("Valider message avec certificat {:?}", enveloppe_cert);
+    //     message.set_certificat(enveloppe_cert);
+    //
+    //     match cert_millegrille_pem.as_ref() {
+    //         Some(c) => {
+    //             let cert = middleware.charger_enveloppe(&vec![c.to_owned()], None, None).await?;
+    //             message.set_millegrille(cert);
+    //         },
+    //         None => ()
+    //     }
+    //
+    //     let options_validation = ValidationOptions::new(true, true, true);
+    //     match middleware.verifier_message(&mut message, Some(&options_validation)) {
+    //         Ok(resultat) => {
+    //             if !resultat.valide() {
+    //                 error!("commande_recevoir Erreur validation message : {:?}", resultat);
+    //                 let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", resultat)});
+    //                 return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+    //             }
+    //         },
+    //         Err(e) => {
+    //             error!("commande_recevoir Erreur validation message : {:?}", e);
+    //             let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", e)});
+    //             return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+    //         }
+    //     }
+    // }
+    //
+    // // Resolve users
+    // let destinataires = {
+    //     let mut destinataires_user_id = match commande.destinataires_user_id {
+    //         Some(inner) => inner.clone(),
+    //         None => Vec::new()
+    //     };
+    //
+    //     let mut destinataires_adresse_user = Vec::new();
+    //     for adresse in &commande.destinataires {
+    //         debug!("Resolve destinataire {}", adresse);
+    //         match AdresseMessagerie::new(adresse.as_str()) {
+    //             Ok(a) => destinataires_adresse_user.push(a.user),
+    //             Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+    //         }
+    //     }
+    //     let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
+    //         .exchanges(vec![Securite::L4Secure])
+    //         .build();
+    //     let requete = json!({"noms_usagers": destinataires_adresse_user});
+    //     debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
+    //     let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
+    //     debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
+    //     let reponse_mappee: ReponseUseridParNomUsager = match reponse {
+    //         TypeMessage::Valide(m) => {
+    //             match m.message.parsed.map_contenu() {
+    //                 Ok(m) => m,
+    //                 Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
+    //             }
+    //         },
+    //         _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
+    //     };
+    //
+    //     // for (username, user_id) in reponse_mappee.usagers {
+    //     //     destinataires_user_id.push(DestinataireInfo{adresse: Some(adresse), user_id});
+    //     // }
+    //
+    //     for adresse in &commande.destinataires {
+    //         debug!("Resolve destinataire {}", adresse);
+    //         match AdresseMessagerie::new(adresse.as_str()) {
+    //             Ok(a) => {
+    //                 let user_id_option = reponse_mappee.usagers.get(a.user.as_str());
+    //                 if let Some(uo) = user_id_option {
+    //                     destinataires_user_id.push(DestinataireInfo{
+    //                         adresse: Some(adresse.to_owned()),
+    //                         user_id: uo.to_owned()
+    //                     })
+    //                 }
+    //                 // destinataires_user_id.push(DestinataireInfo{adresse: Some(adresse), user_id})
+    //                 // destinataires_adresse_user.push(a.user),
+    //             },
+    //             Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+    //         }
+    //     }
+    //
+    //     destinataires_user_id
+    // };
+    //
+    // if let Some(cle) = commande.cle.take() {
+    //     debug!("Sauvegarder cle : {:?}", cle);
+    //     if let Some(p) = cle.partition.as_ref() {
+    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+    //             .exchanges(vec![Securite::L3Protege])
+    //             .partition(p.to_owned())
+    //             .build();
+    //         let reponse = middleware.transmettre_commande(routage, &cle, true).await?;
+    //         debug!("Reponse commande sauvegarder cle {:?}", reponse);
+    //     } else {
+    //         Err(format!("commandes.recevoir Erreur sauvegarde cle - partition n'est pas fournie"))?
+    //     }
+    // }
+    //
+    // // let destinataires_user_id: Vec<String> = reponse_mappee.usagers.iter().filter_map(|v| v.1.to_owned()).collect();
+    // // let mut message_contenu = commande.message;
+    // // message_contenu.insert("destinataires_user_id".to_string(), Value::from(destinataires_user_id));
+    //
+    // // let message = MessageSerialise::from_serializable(&message_contenu)?;
+    //
+    // // Cleanup, retirer certificat du message (stocke externe)
+    // commande.message.remove("_certificat");
+    //
+    // let commande_maj = CommandeRecevoirPost {
+    //     message: commande.message,
+    //     destinataires: commande.destinataires,
+    //     destinataires_user_id: Some(destinataires),
+    //     cle: None
+    // };
+    //
+    // // Traiter la transaction
+    // //Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    // Ok(sauvegarder_traiter_transaction_serializable(
+    //     middleware, &commande_maj, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?)
 }
 
 async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -330,13 +332,6 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
     debug!("commandes.commande_initialiser_profil Consommer commande : {:?}", & m.message);
     let commande: CommandeInitialiserProfil = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_initialiser_profil Commande nouvelle versions parsed : {:?}", commande);
-
-    {
-        let version_commande = m.message.get_entete().version;
-        if version_commande != 1 {
-            Err(format!("commandes.commande_initialiser_profil: Version non supportee {:?}", version_commande))?
-        }
-    }
 
     let user_id = match m.get_user_id() {
         Some(u) => u,
@@ -386,7 +381,7 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
         cle_ref_hachage_bytes: cle_profil.hachage_bytes
     };
     let transaction = middleware.formatter_message(
-        &transaction, Some(DOMAINE_NOM), Some(m.action.as_str()), None, None, false)?;
+        MessageKind::Transaction, &transaction, Some(DOMAINE_NOM), Some(m.action.as_str()), None, None, false)?;
     let mut transaction = MessageValideAction::from_message_millegrille(
         transaction, TypeMessageOut::Transaction)?;
 
@@ -405,29 +400,30 @@ async fn commande_maj_contact<M>(middleware: &M, m: MessageValideAction, gestion
     let commande: Contact = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_maj_contact Commande nouvelle versions parsed : {:?}", commande);
 
-    {
-        let version_commande = m.message.get_entete().version;
-        if version_commande != 1 {
-            Err(format!("commandes.commande_initialiser_profil: Version non supportee {:?}", version_commande))?
-        }
-    }
-
-    let user_id = match m.get_user_id() {
-        Some(u) => u,
-        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
-    };
-    // Autorisation: Action usager avec compte prive ou delegation globale
-    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-    if role_prive {
-        // Ok
-    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-        // Ok
-    } else {
-        Err(format!("commandes.commande_initialiser_profil: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-    }
-
-    // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    todo!("fix me");
+    // {
+    //     let version_commande = m.message.get_entete().version;
+    //     if version_commande != 1 {
+    //         Err(format!("commandes.commande_initialiser_profil: Version non supportee {:?}", version_commande))?
+    //     }
+    // }
+    //
+    // let user_id = match m.get_user_id() {
+    //     Some(u) => u,
+    //     None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
+    // };
+    // // Autorisation: Action usager avec compte prive ou delegation globale
+    // let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    // if role_prive {
+    //     // Ok
+    // } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    //     // Ok
+    // } else {
+    //     Err(format!("commandes.commande_initialiser_profil: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    // }
+    //
+    // // Traiter la transaction
+    // Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
 async fn commande_lu<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -438,29 +434,30 @@ async fn commande_lu<M>(middleware: &M, m: MessageValideAction, gestionnaire: &G
     let commande: CommandeLu = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_lu Commande nouvelle versions parsed : {:?}", commande);
 
-    {
-        let version_commande = m.message.get_entete().version;
-        if version_commande != 1 {
-            Err(format!("commandes.commande_initialiser_profil: Version non supportee {:?}", version_commande))?
-        }
-    }
-
-    let user_id = match m.get_user_id() {
-        Some(u) => u,
-        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
-    };
-    // Autorisation: Action usager avec compte prive ou delegation globale
-    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-    if role_prive {
-        // Ok
-    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-        // Ok
-    } else {
-        Err(format!("commandes.commande_initialiser_profil: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-    }
-
-    // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    todo!("fix me");
+    // {
+    //     let version_commande = m.message.get_entete().version;
+    //     if version_commande != 1 {
+    //         Err(format!("commandes.commande_initialiser_profil: Version non supportee {:?}", version_commande))?
+    //     }
+    // }
+    //
+    // let user_id = match m.get_user_id() {
+    //     Some(u) => u,
+    //     None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
+    // };
+    // // Autorisation: Action usager avec compte prive ou delegation globale
+    // let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    // if role_prive {
+    //     // Ok
+    // } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    //     // Ok
+    // } else {
+    //     Err(format!("commandes.commande_initialiser_profil: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    // }
+    //
+    // // Traiter la transaction
+    // Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
 async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -576,30 +573,31 @@ async fn commande_supprimer_message<M>(middleware: &M, m: MessageValideAction, g
     let commande: TransactionSupprimerMessage = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_supprimer_message Commande parsed : {:?}", commande);
 
-    {
-        let version_commande = m.message.get_entete().version;
-        if version_commande != 1 {
-            Err(format!("commandes.commande_supprimer_message: Version non supportee {:?}", version_commande))?
-        }
-    }
-
-    let user_id = match m.get_user_id() {
-        Some(u) => u,
-        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
-    };
-
-    // Autorisation: Action usager avec compte prive ou delegation globale
-    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-    if role_prive {
-        // Ok
-    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-        // Ok
-    } else {
-        Err(format!("commandes.commande_supprimer_message: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-    }
-
-    // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    todo!("fix me");
+    // {
+    //     let version_commande = m.message.get_entete().version;
+    //     if version_commande != 1 {
+    //         Err(format!("commandes.commande_supprimer_message: Version non supportee {:?}", version_commande))?
+    //     }
+    // }
+    //
+    // let user_id = match m.get_user_id() {
+    //     Some(u) => u,
+    //     None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
+    // };
+    //
+    // // Autorisation: Action usager avec compte prive ou delegation globale
+    // let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    // if role_prive {
+    //     // Ok
+    // } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    //     // Ok
+    // } else {
+    //     Err(format!("commandes.commande_supprimer_message: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    // }
+    //
+    // // Traiter la transaction
+    // Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
 async fn commande_supprimer_contacts<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -610,30 +608,31 @@ async fn commande_supprimer_contacts<M>(middleware: &M, m: MessageValideAction, 
     let commande: TransactionSupprimerContacts = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_supprimer_contacts Commande parsed : {:?}", commande);
 
-    {
-        let version_commande = m.message.get_entete().version;
-        if version_commande != 1 {
-            Err(format!("commandes.commande_supprimer_contacts: Version non supportee {:?}", version_commande))?
-        }
-    }
-
-    let user_id = match m.get_user_id() {
-        Some(u) => u,
-        None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
-    };
-
-    // Autorisation: Action usager avec compte prive ou delegation globale
-    let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-    if role_prive {
-        // Ok
-    } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-        // Ok
-    } else {
-        Err(format!("commandes.commande_supprimer_contacts: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-    }
-
-    // Traiter la transaction
-    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    todo!("fix me");
+    // {
+    //     let version_commande = m.message.get_entete().version;
+    //     if version_commande != 1 {
+    //         Err(format!("commandes.commande_supprimer_contacts: Version non supportee {:?}", version_commande))?
+    //     }
+    // }
+    //
+    // let user_id = match m.get_user_id() {
+    //     Some(u) => u,
+    //     None => return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "userId manquant", "code": 403}), None)?))
+    // };
+    //
+    // // Autorisation: Action usager avec compte prive ou delegation globale
+    // let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+    // if role_prive {
+    //     // Ok
+    // } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+    //     // Ok
+    // } else {
+    //     Err(format!("commandes.commande_supprimer_contacts: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+    // }
+    //
+    // // Traiter la transaction
+    // Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
 
 async fn commande_conserver_configuration_notifications<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -651,31 +650,32 @@ async fn commande_conserver_configuration_notifications<M>(middleware: &M, mut m
         Err(format!("commandes.commande_supprimer_contacts: Commande autorisation invalide pour message {:?}", m.correlation_id))?
     }
 
-    match commande.cles {
-        Some(cles) => {
-
-            if let Some(smtp) = cles.smtp {
-                // Conserver cle smtp
-                let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-                    .exchanges(vec![Securite::L4Secure])
-                    .build();
-                middleware.transmettre_commande(routage, &smtp, true).await?;
-            }
-
-            if let Some(webpush) = cles.webpush {
-                let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-                    .exchanges(vec![Securite::L4Secure])
-                    .build();
-                middleware.transmettre_commande(routage, &webpush, true).await?;
-            }
-
-            // Retirer les cles
-            m.message.parsed.contenu.remove("_cles");
-
-            Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-        },
-        None => Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-    }
+    todo!("fix me");
+    // match commande.cles {
+    //     Some(cles) => {
+    //
+    //         if let Some(smtp) = cles.smtp {
+    //             // Conserver cle smtp
+    //             let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+    //                 .exchanges(vec![Securite::L4Secure])
+    //                 .build();
+    //             middleware.transmettre_commande(routage, &smtp, true).await?;
+    //         }
+    //
+    //         if let Some(webpush) = cles.webpush {
+    //             let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+    //                 .exchanges(vec![Securite::L4Secure])
+    //                 .build();
+    //             middleware.transmettre_commande(routage, &webpush, true).await?;
+    //         }
+    //
+    //         // Retirer les cles
+    //         m.message.parsed.contenu.remove("_cles");
+    //
+    //         Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    //     },
+    //     None => Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    // }
 
 }
 
@@ -1325,86 +1325,87 @@ async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnai
     let commande: CommandeRecevoir = m.message.get_msg().map_contenu()?;
     debug!("commande_notifier parsed : {:?}", commande);
 
-    let entete = m.message.get_entete();
-
-    let enveloppe = match m.message.certificat.as_ref() {
-        Some(e) => e.as_ref(),
-        None => Err(format!("Erreur chargement certificat"))?
-    };
-
-    // Verifier que le certificat a un exchange ou user_id
-    match &m.message.certificat {
-        Some(c) => {
-            match c.get_user_id()? {
-                Some(_) => (),  // Ok
-                None => match c.verifier_exchanges(vec![Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure]) {
-                    true => (),  // Ok
-                    false => Err(format!("transactions.retirer_subscription_webpush Certificat sans user_id ou sans exchange L1-L4"))?
-                }
-            }
-        },
-        None => Err(format!("commandes.commande_retirer_subscription_webpush Erreur chargement certificat pour notification"))?
-    }
-
-    // Sauvegarder la cle au besoin
-    if let Some(cle) = commande.cle.as_ref() {
-        if let Some(partition) = cle.entete.partition.as_ref() {
-            debug!("Sauvegarder cle de notification avec partition {}", partition);
-            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-                .exchanges(vec![Securite::L3Protege])
-                .partition(partition)
-                .build();
-            middleware.transmettre_commande(routage, cle, true).await?;
-        }
-    }
-
-    // Determiner les destinataires
-    let (destinataires, expiration) = match &commande.destinataires {
-        Some(d) => (d.clone(), commande.expiration.clone()),
-        None => {
-            // Forcer expiration de la notification (volatile)
-            let expiration = match commande.expiration {
-                Some(e) => Some(e),
-                None => Some(CONST_EXPIRATION_NOTIFICATION_DEFAUT)
-            };
-            // Charger la liste des proprietaires (requete a MaitreDesComptes)
-            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCOMPTES, ACTION_GET_LISTE_PROPRIETAIRES)
-                .exchanges(vec![Securite::L3Protege])
-                .build();
-            let requete = json!({});
-            match middleware.transmettre_requete(routage, &requete).await? {
-                TypeMessage::Valide(m) => {
-                    debug!("Reponse liste proprietaires : {:?}", m);
-                    let reponse: ReponseListeUsagers = m.message.parsed.map_contenu()?;
-                    let user_ids: Vec<String> = reponse.usagers.into_iter().map(|u| u.user_id).collect();
-                    (user_ids, expiration)
-                },
-                _ => Err(format!("Erreur chargement liste proprietaires"))?
-            }
-        }
-    };
-
-    // Verifier si la notification est volatile (avec expiration).
-    // Les notifications volatiles ne sont pas sauvegardees via transaction.
-    match &commande.expiration {
-        Some(e) => {
-            debug!("Sauvegarder notification volatile, expiration {}", e);
-            recevoir_notification(middleware, &commande, entete, enveloppe, destinataires).await?;
-            Ok(middleware.reponse_ok()?)
-        },
-        None => {
-            // Notification non volatile (avec destinataires, sans expiration)
-            // sauvegarder sous forme de transaction
-            debug!("Sauvegarder notification avec destinataires, sans expiration");
-            Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-        }
-    }
+    todo!("fix me");
+    // let entete = m.message.get_entete();
+    //
+    // let enveloppe = match m.message.certificat.as_ref() {
+    //     Some(e) => e.as_ref(),
+    //     None => Err(format!("Erreur chargement certificat"))?
+    // };
+    //
+    // // Verifier que le certificat a un exchange ou user_id
+    // match &m.message.certificat {
+    //     Some(c) => {
+    //         match c.get_user_id()? {
+    //             Some(_) => (),  // Ok
+    //             None => match c.verifier_exchanges(vec![Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure]) {
+    //                 true => (),  // Ok
+    //                 false => Err(format!("transactions.retirer_subscription_webpush Certificat sans user_id ou sans exchange L1-L4"))?
+    //             }
+    //         }
+    //     },
+    //     None => Err(format!("commandes.commande_retirer_subscription_webpush Erreur chargement certificat pour notification"))?
+    // }
+    //
+    // // Sauvegarder la cle au besoin
+    // if let Some(cle) = commande.cle.as_ref() {
+    //     if let Some(partition) = cle.entete.partition.as_ref() {
+    //         debug!("Sauvegarder cle de notification avec partition {}", partition);
+    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+    //             .exchanges(vec![Securite::L3Protege])
+    //             .partition(partition)
+    //             .build();
+    //         middleware.transmettre_commande(routage, cle, true).await?;
+    //     }
+    // }
+    //
+    // // Determiner les destinataires
+    // let (destinataires, expiration) = match &commande.destinataires {
+    //     Some(d) => (d.clone(), commande.expiration.clone()),
+    //     None => {
+    //         // Forcer expiration de la notification (volatile)
+    //         let expiration = match commande.expiration {
+    //             Some(e) => Some(e),
+    //             None => Some(CONST_EXPIRATION_NOTIFICATION_DEFAUT)
+    //         };
+    //         // Charger la liste des proprietaires (requete a MaitreDesComptes)
+    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCOMPTES, ACTION_GET_LISTE_PROPRIETAIRES)
+    //             .exchanges(vec![Securite::L3Protege])
+    //             .build();
+    //         let requete = json!({});
+    //         match middleware.transmettre_requete(routage, &requete).await? {
+    //             TypeMessage::Valide(m) => {
+    //                 debug!("Reponse liste proprietaires : {:?}", m);
+    //                 let reponse: ReponseListeUsagers = m.message.parsed.map_contenu()?;
+    //                 let user_ids: Vec<String> = reponse.usagers.into_iter().map(|u| u.user_id).collect();
+    //                 (user_ids, expiration)
+    //             },
+    //             _ => Err(format!("Erreur chargement liste proprietaires"))?
+    //         }
+    //     }
+    // };
+    //
+    // // Verifier si la notification est volatile (avec expiration).
+    // // Les notifications volatiles ne sont pas sauvegardees via transaction.
+    // match &commande.expiration {
+    //     Some(e) => {
+    //         debug!("Sauvegarder notification volatile, expiration {}", e);
+    //         recevoir_notification(middleware, &commande, entete, enveloppe, destinataires).await?;
+    //         Ok(middleware.reponse_ok()?)
+    //     },
+    //     None => {
+    //         // Notification non volatile (avec destinataires, sans expiration)
+    //         // sauvegarder sous forme de transaction
+    //         debug!("Sauvegarder notification avec destinataires, sans expiration");
+    //         Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    //     }
+    // }
 }
 
 async fn recevoir_notification<M>(
     middleware: &M,
     notification: &CommandeRecevoir,
-    entete: &Entete,
+    // entete: &Entete,
     enveloppe: &EnveloppeCertificat,
     destinataires: Vec<String>
 )
@@ -1413,85 +1414,87 @@ async fn recevoir_notification<M>(
 {
     debug!("recevoir_notification {:?} de {:?} pour {:?}", notification, enveloppe, destinataires);
 
-    let fp_certs = enveloppe.get_pem_vec();
-    let certificat_message_pem: Vec<String> = fp_certs.into_iter().map(|c| c.pem).collect();
+    todo!("fix me");
 
-    // Sauvegarder la cle au besoin
-    if let Some(cle) = notification.cle.as_ref() {
-        if let Some(partition) = cle.entete.partition.as_ref() {
-            debug!("Sauvegarder cle de notification avec partition {}", partition);
-            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-                .exchanges(vec![Securite::L3Protege])
-                .partition(partition)
-                .build();
-            middleware.transmettre_commande(routage, cle, true).await?;
-        }
-    }
-
-    let message = &notification.message;
-
-    let now: Bson = DateEpochSeconds::now().into();
-    let uuid_transaction = entete.uuid_transaction.as_str();
-
-    let mut liste_usagers = Vec::new();
-    for user_id in &destinataires {
-        // Sauvegarder message pour l'usager
-        debug!("transaction_recevoir Sauvegarder message pour usager : {}", user_id);
-        // map_usagers.insert(user_id.to_owned(), Some(user_id.to_owned()));
-        liste_usagers.push(DestinataireInfo {adresse: None, user_id: Some(user_id.to_owned())});
-
-        let doc_user_reception = doc! {
-            "user_id": user_id,
-            "uuid_transaction": uuid_transaction,
-            "uuid_message": uuid_transaction,
-            "lu": false,
-            CHAMP_SUPPRIME: false,
-            "date_reception": &now,
-            "date_ouverture": None::<&str>,
-            "certificat_message": &certificat_message_pem,
-            "message_chiffre": &message.message_chiffre,
-
-            // Attachments - note, pas encore supporte via notifications
-            CHAMP_ATTACHMENTS: None::<&str>,  // &attachments_bson,
-            CHAMP_ATTACHMENTS_TRAITES: true,  // &attachments_recus,
-
-            // Info specifique aux notifications
-            "ref_hachage_bytes": &message.ref_hachage_bytes,
-            "header": &message.header,
-            "format": &message.format,
-            "niveau": &message.niveau,
-            "expiration": notification.expiration,
-        };
-
-        debug!("recevoir_notification Inserer message {:?}", doc_user_reception);
-        let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-        match collection.insert_one(&doc_user_reception, None).await {
-            Ok(_r) => (),
-            Err(e) => {
-                let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
-                if erreur_duplication {
-                    info!("recevoir_notification Erreur duplication notification : {:?}", e);
-                } else {
-                    Err(e)?  // Relancer erreur
-                }
-            }
-        }
-
-        // Evenement de nouveau message pour front-end, notifications
-        if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
-            // let message_mappe: MessageIncoming =
-            let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
-                .exchanges(vec![L2Prive])
-                .partition(user_id)
-                .build();
-            middleware.emettre_evenement(routage, &m).await?;
-        }
-    }
-
-    if let Err(e) = emettre_notifications(
-        middleware, &liste_usagers, uuid_transaction, uuid_transaction).await {
-        warn!("recevoir_notification Erreur emission notifications : {:?}", e);
-    }
-
-    Ok(())
+    // let fp_certs = enveloppe.get_pem_vec();
+    // let certificat_message_pem: Vec<String> = fp_certs.into_iter().map(|c| c.pem).collect();
+    //
+    // // Sauvegarder la cle au besoin
+    // if let Some(cle) = notification.cle.as_ref() {
+    //     if let Some(partition) = cle.entete.partition.as_ref() {
+    //         debug!("Sauvegarder cle de notification avec partition {}", partition);
+    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+    //             .exchanges(vec![Securite::L3Protege])
+    //             .partition(partition)
+    //             .build();
+    //         middleware.transmettre_commande(routage, cle, true).await?;
+    //     }
+    // }
+    //
+    // let message = &notification.message;
+    //
+    // let now: Bson = DateEpochSeconds::now().into();
+    // let uuid_transaction = entete.uuid_transaction.as_str();
+    //
+    // let mut liste_usagers = Vec::new();
+    // for user_id in &destinataires {
+    //     // Sauvegarder message pour l'usager
+    //     debug!("transaction_recevoir Sauvegarder message pour usager : {}", user_id);
+    //     // map_usagers.insert(user_id.to_owned(), Some(user_id.to_owned()));
+    //     liste_usagers.push(DestinataireInfo {adresse: None, user_id: Some(user_id.to_owned())});
+    //
+    //     let doc_user_reception = doc! {
+    //         "user_id": user_id,
+    //         "uuid_transaction": uuid_transaction,
+    //         "uuid_message": uuid_transaction,
+    //         "lu": false,
+    //         CHAMP_SUPPRIME: false,
+    //         "date_reception": &now,
+    //         "date_ouverture": None::<&str>,
+    //         "certificat_message": &certificat_message_pem,
+    //         "message_chiffre": &message.message_chiffre,
+    //
+    //         // Attachments - note, pas encore supporte via notifications
+    //         CHAMP_ATTACHMENTS: None::<&str>,  // &attachments_bson,
+    //         CHAMP_ATTACHMENTS_TRAITES: true,  // &attachments_recus,
+    //
+    //         // Info specifique aux notifications
+    //         "ref_hachage_bytes": &message.ref_hachage_bytes,
+    //         "header": &message.header,
+    //         "format": &message.format,
+    //         "niveau": &message.niveau,
+    //         "expiration": notification.expiration,
+    //     };
+    //
+    //     debug!("recevoir_notification Inserer message {:?}", doc_user_reception);
+    //     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    //     match collection.insert_one(&doc_user_reception, None).await {
+    //         Ok(_r) => (),
+    //         Err(e) => {
+    //             let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+    //             if erreur_duplication {
+    //                 info!("recevoir_notification Erreur duplication notification : {:?}", e);
+    //             } else {
+    //                 Err(e)?  // Relancer erreur
+    //             }
+    //         }
+    //     }
+    //
+    //     // Evenement de nouveau message pour front-end, notifications
+    //     if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
+    //         // let message_mappe: MessageIncoming =
+    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
+    //             .exchanges(vec![L2Prive])
+    //             .partition(user_id)
+    //             .build();
+    //         middleware.emettre_evenement(routage, &m).await?;
+    //     }
+    // }
+    //
+    // if let Err(e) = emettre_notifications(
+    //     middleware, &liste_usagers, uuid_transaction, uuid_transaction).await {
+    //     warn!("recevoir_notification Erreur emission notifications : {:?}", e);
+    // }
+    //
+    // Ok(())
 }

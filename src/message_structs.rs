@@ -7,7 +7,7 @@ use millegrilles_common_rust::chrono;
 use millegrilles_common_rust::chrono::{DateTime, Utc};
 use millegrilles_common_rust::chrono::serde::ts_seconds_option;
 use millegrilles_common_rust::common_messages::DataChiffre;
-use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, Entete, MessageMilleGrille};
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
 use millegrilles_common_rust::bson::serde_helpers::deserialize_chrono_datetime_from_bson_datetime;
@@ -123,8 +123,8 @@ pub struct DocumentMessage {
     pub hachage_bytes: Option<String>,
     pub ref_hachage_bytes: Option<String>,
 
-    #[serde(rename = "en-tete", skip_serializing)]
-    pub entete: Option<Entete>
+    // #[serde(rename = "en-tete", skip_serializing)]
+    // pub entete: Option<Entete>
 }
 
 impl DocumentMessage {
