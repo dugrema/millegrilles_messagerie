@@ -473,8 +473,6 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     let commande = CommandeRecevoirPost{
         message: commande_poster.message,
         destinataires: destinataires.clone(),
-        destinataires_user_id: None,
-        // cle: None
     };
 
     let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_RECEVOIR)

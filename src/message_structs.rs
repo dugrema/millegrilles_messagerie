@@ -168,10 +168,12 @@ pub struct DestinataireInfo {
 pub struct CommandeRecevoirPost {
     pub message: MessageMilleGrille,
     pub destinataires: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub destinataires_user_id: Option<Vec<DestinataireInfo>>,  // Destinataires resolved (interne)
-    // #[serde(rename = "_cle", skip_serializing_if = "Option::is_none")]
-    // pub cle: Option<CommandeSauvegarderCle>,         // Cle a sauvegarder
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocumentRecevoirPost {
+    pub message: MessageMilleGrille,
+    pub destinataires_user_id: Vec<DestinataireInfo>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -208,24 +210,93 @@ pub struct RequeteGetReferenceMessages {
     pub messages_envoyes: Option<bool>,
 }
 
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct MessageIncoming {
+//     pub uuid_transaction: String,
+//     pub lu: Option<bool>,
+//     pub supprime: bool,
+//     pub date_reception: Option<DateEpochSeconds>,
+//     pub date_envoi: Option<DateEpochSeconds>,
+//     pub message_chiffre: String,
+//     pub hachage_bytes: Option<String>,
+//     pub ref_hachage_bytes: Option<String>,
+//     pub header: Option<String>,
+//     pub format: Option<String>,
+//     pub expiration: Option<i64>,
+//     pub niveau: Option<String>,
+//     pub certificat_message: Option<Vec<String>>,
+//     pub certificat_millegrille: Option<String>,
+//     pub attachments: Option<HashMap<String, bool>>,
+//     pub attachments_traites: Option<bool>,
+// }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AttachedFileDecryption {
+    pub format: String,
+    pub key: Option<String>,
+    pub header: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AttachedImage {
+    pub data: Option<String>,
+    pub mimetype: Option<String>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub file: Option<String>,
+    pub size: Option<i64>,
+    pub decryption: Option<AttachedFileDecryption>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AttachedVideo {
+    pub mimetype: Option<String>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub file: Option<String>,
+    pub size: Option<i64>,
+    pub codec: Option<String>,
+    pub bitrate: Option<i64>,
+    pub quality: Option<i64>,
+    pub decryption: Option<AttachedFileDecryption>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AttachedMedia {
+    pub animated: Option<bool>,
+    pub duration: Option<i64>,
+    pub height: Option<i64>,
+    pub width: Option<i64>,
+    pub video_codec: Option<String>,
+    pub images: Option<Vec<AttachedImage>>,
+    pub videos: Option<Vec<AttachedVideo>>,
+    pub decryption: Option<AttachedFileDecryption>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AttachedFile {
+    pub name: String,
+    pub date: DateEpochSeconds,
+    pub digest: String,
+    pub size: Option<i64>,
+    pub encrypted_size: Option<i64>,
+    pub file: String,
+    pub mimetype: String,
+    pub media: Option<AttachedMedia>
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncoming {
-    pub uuid_transaction: String,
-    pub lu: Option<bool>,
-    pub supprime: bool,
-    pub date_reception: Option<DateEpochSeconds>,
-    pub date_envoi: Option<DateEpochSeconds>,
-    pub message_chiffre: String,
-    pub hachage_bytes: Option<String>,
-    pub ref_hachage_bytes: Option<String>,
-    pub header: Option<String>,
-    pub format: Option<String>,
-    pub expiration: Option<i64>,
-    pub niveau: Option<String>,
-    pub certificat_message: Option<Vec<String>>,
-    pub certificat_millegrille: Option<String>,
-    pub attachments: Option<HashMap<String, bool>>,
-    pub attachments_traites: Option<bool>,
+    pub from: String,
+    pub subject: Option<String>,
+    pub version: i64,
+    pub format: String,
+    pub content: String,
+    pub to: Option<Vec<String>>,
+    pub reply_to: Option<String>,
+    pub cc: Option<Vec<String>>,
+    pub thread: Option<String>,
+    pub files: Option<Vec<AttachedFile>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -70,7 +70,7 @@ impl GestionnaireMessagerie {
 #[async_trait]
 impl TraiterTransaction for GestionnaireMessagerie {
     async fn appliquer_transaction<M>(&self, middleware: &M, transaction: TransactionImpl) -> Result<Option<MessageMilleGrille>, String>
-        where M: ValidateurX509 + GenerateurMessages + MongoDao
+        where M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
     {
         aiguillage_transaction(self, middleware, transaction).await
     }
@@ -140,7 +140,7 @@ impl GestionnaireDomaine for GestionnaireMessagerie {
 
     async fn aiguillage_transaction<M, T>(&self, middleware: &M, transaction: T)
         -> Result<Option<MessageMilleGrille>, String>
-        where M: ValidateurX509 + GenerateurMessages + MongoDao, T: Transaction
+        where M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage, T: Transaction
     {
         aiguillage_transaction(self, middleware, transaction).await
     }

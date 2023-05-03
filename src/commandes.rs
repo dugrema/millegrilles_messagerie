@@ -188,7 +188,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     let mut commande: CommandeRecevoirPost = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_recevoir Commande nouvelle versions parsed : {:?}", commande);
 
-    let user_id = m.get_user_id();
+    // let user_id = m.get_user_id();
     match m.verifier_exchanges(vec!(Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
         true => {
             // Compte systeme local, ok
@@ -233,7 +233,11 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
         None => {
             match middleware.get_certificat(message.parsed.pubkey.as_str()).await {
                 Some(inner) => inner,
-                None => Err(format!("commandes.commande_recevoir: Certificat absent du message encapsule {:?}", m.correlation_id))?
+                None => {
+                    error!("commandes.commande_recevoir: Certificat absent du message encapsule {:?}", m.correlation_id);
+                    let reponse_erreur = json!({"ok": false, "err": "Certificat absent du message encapsule"});
+                    return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+                }
             }
         }
     };
@@ -244,167 +248,95 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     let resultat_verification = middleware.verifier_message(&mut message, None)?;
     match resultat_verification.valide() {
         true => debug!("commande_recevoir Message encapsule dans la commande recevoir est valide"),
-        false => Err(format!("commandes.commande_recevoir: Message encapsule est invalide {:?} : {:?}", m.correlation_id, resultat_verification))?
+        false => {
+            error!("commandes.commande_recevoir: Message encapsule est invalide {:?} : {:?}", m.correlation_id, resultat_verification);
+            let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", resultat_verification)});
+            return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
+        }
     }
 
-    todo!("fix me");
+    // Resolve users
+    let destinataires = {
+        let mut destinataires_user_id = Vec::new();
+        let mut destinataires_adresse_user = Vec::new();
+        for adresse in &commande.destinataires {
+            debug!("Resolve destinataire {}", adresse);
+            match AdresseMessagerie::new(adresse.as_str()) {
+                Ok(a) => destinataires_adresse_user.push(a.user),
+                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+            }
+        }
+        let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
+            .exchanges(vec![Securite::L4Secure])
+            .build();
+        let requete = json!({"noms_usagers": destinataires_adresse_user});
+        debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
+        let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
+        debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
+        let reponse_mappee: ReponseUseridParNomUsager = match reponse {
+            TypeMessage::Valide(m) => {
+                match m.message.parsed.map_contenu() {
+                    Ok(m) => m,
+                    Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
+                }
+            },
+            _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
+        };
 
-    // let cert_millegrille_pem = match commande.message.get("_millegrille") {
-    //     Some(c) => {
-    //         debug!("commande_recevoir Utiliser certificat de millegrille pour valider : {:?}", c);
-    //         let millegrille_pem: String = serde_json::from_value(c.to_owned())?;
-    //         Some(millegrille_pem)
-    //     },
-    //     None => {
-    //         debug!("commande_recevoir Aucun certificat de millegrille pour valider");
-    //         None
-    //     }
-    // };
+        for adresse in &commande.destinataires {
+            debug!("Resolve destinataire {}", adresse);
+            match AdresseMessagerie::new(adresse.as_str()) {
+                Ok(a) => {
+                    let user_id_option = reponse_mappee.usagers.get(a.user.as_str());
+                    if let Some(uo) = user_id_option {
+                        destinataires_user_id.push(DestinataireInfo{
+                            adresse: Some(adresse.to_owned()),
+                            user_id: uo.to_owned()
+                        })
+                    }
+                },
+                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+            }
+        }
 
-    // let enveloppe_cert: Arc<EnveloppeCertificat> = match commande.message.get("_certificat") {
-    //     Some(c) => {
-    //         let certificat_pem: Vec<String> = serde_json::from_value(c.to_owned())?;
-    //         match cert_millegrille_pem.as_ref() {
-    //             Some(c) => middleware.charger_enveloppe(&certificat_pem, None, Some(c.as_str())).await?,
-    //             None => {
-    //                 // Millegrille locale, charger le certificat fourni
-    //                 middleware.charger_enveloppe(&certificat_pem, None, None).await?
-    //             }
-    //         }
-    //     },
-    //     None => {
-    //         error!("commande_recevoir Erreur _certificat manquant");
-    //         let reponse_erreur = json!({"ok": false, "err": "Erreur, _certificat manquant"});
-    //         return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
-    //     }
-    // };
-    //
-    // {
-    //     let mut message = MessageSerialise::from_serializable(&commande.message)?;
-    //     debug!("Valider message avec certificat {:?}", enveloppe_cert);
-    //     message.set_certificat(enveloppe_cert);
-    //
-    //     match cert_millegrille_pem.as_ref() {
-    //         Some(c) => {
-    //             let cert = middleware.charger_enveloppe(&vec![c.to_owned()], None, None).await?;
-    //             message.set_millegrille(cert);
-    //         },
-    //         None => ()
-    //     }
-    //
-    //     let options_validation = ValidationOptions::new(true, true, true);
-    //     match middleware.verifier_message(&mut message, Some(&options_validation)) {
-    //         Ok(resultat) => {
-    //             if !resultat.valide() {
-    //                 error!("commande_recevoir Erreur validation message : {:?}", resultat);
-    //                 let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", resultat)});
-    //                 return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
-    //             }
-    //         },
-    //         Err(e) => {
-    //             error!("commande_recevoir Erreur validation message : {:?}", e);
-    //             let reponse_erreur = json!({"ok": false, "err": "Erreur validation message", "detail": format!("{:?}", e)});
-    //             return Ok(Some(middleware.formatter_reponse(&reponse_erreur, None)?));
-    //         }
-    //     }
-    // }
-    //
-    // // Resolve users
-    // let destinataires = {
-    //     let mut destinataires_user_id = match commande.destinataires_user_id {
-    //         Some(inner) => inner.clone(),
-    //         None => Vec::new()
-    //     };
-    //
-    //     let mut destinataires_adresse_user = Vec::new();
-    //     for adresse in &commande.destinataires {
-    //         debug!("Resolve destinataire {}", adresse);
-    //         match AdresseMessagerie::new(adresse.as_str()) {
-    //             Ok(a) => destinataires_adresse_user.push(a.user),
-    //             Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
-    //         }
-    //     }
-    //     let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
-    //         .exchanges(vec![Securite::L4Secure])
-    //         .build();
-    //     let requete = json!({"noms_usagers": destinataires_adresse_user});
-    //     debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
-    //     let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
-    //     debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
-    //     let reponse_mappee: ReponseUseridParNomUsager = match reponse {
-    //         TypeMessage::Valide(m) => {
-    //             match m.message.parsed.map_contenu() {
-    //                 Ok(m) => m,
-    //                 Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
-    //             }
-    //         },
-    //         _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
-    //     };
-    //
-    //     // for (username, user_id) in reponse_mappee.usagers {
-    //     //     destinataires_user_id.push(DestinataireInfo{adresse: Some(adresse), user_id});
-    //     // }
-    //
-    //     for adresse in &commande.destinataires {
-    //         debug!("Resolve destinataire {}", adresse);
-    //         match AdresseMessagerie::new(adresse.as_str()) {
-    //             Ok(a) => {
-    //                 let user_id_option = reponse_mappee.usagers.get(a.user.as_str());
-    //                 if let Some(uo) = user_id_option {
-    //                     destinataires_user_id.push(DestinataireInfo{
-    //                         adresse: Some(adresse.to_owned()),
-    //                         user_id: uo.to_owned()
-    //                     })
-    //                 }
-    //                 // destinataires_user_id.push(DestinataireInfo{adresse: Some(adresse), user_id})
-    //                 // destinataires_adresse_user.push(a.user),
-    //             },
-    //             Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
-    //         }
-    //     }
-    //
-    //     destinataires_user_id
-    // };
-    //
+        destinataires_user_id
+    };
+
     // if let Some(cle) = commande.cle.take() {
-    //     debug!("Sauvegarder cle : {:?}", cle);
-    //     if let Some(p) = cle.partition.as_ref() {
-    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-    //             .exchanges(vec![Securite::L3Protege])
-    //             .partition(p.to_owned())
-    //             .build();
-    //         let reponse = middleware.transmettre_commande(routage, &cle, true).await?;
-    //         debug!("Reponse commande sauvegarder cle {:?}", reponse);
-    //     } else {
-    //         Err(format!("commandes.recevoir Erreur sauvegarde cle - partition n'est pas fournie"))?
-    //     }
-    // }
-    //
-    // // let destinataires_user_id: Vec<String> = reponse_mappee.usagers.iter().filter_map(|v| v.1.to_owned()).collect();
-    // // let mut message_contenu = commande.message;
-    // // message_contenu.insert("destinataires_user_id".to_string(), Value::from(destinataires_user_id));
-    //
-    // // let message = MessageSerialise::from_serializable(&message_contenu)?;
-    //
-    // // Cleanup, retirer certificat du message (stocke externe)
-    // commande.message.remove("_certificat");
-    //
-    // let commande_maj = CommandeRecevoirPost {
-    //     message: commande.message,
-    //     destinataires: commande.destinataires,
-    //     destinataires_user_id: Some(destinataires),
-    //     cle: None
-    // };
-    //
-    // // Traiter la transaction
-    // //Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-    // Ok(sauvegarder_traiter_transaction_serializable(
-    //     middleware, &commande_maj, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?)
+    if let Some(mut attachements) = message.parsed.attachements.take() {
+        if let Some(cle) = attachements.remove("cle") {
+            let cle: CommandeSauvegarderCle = serde_json::from_value(cle)?;
+            debug!("Sauvegarder cle : {:?}", cle);
+            if let Some(p) = cle.partition.as_ref() {
+                let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+                    .exchanges(vec![Securite::L3Protege])
+                    .partition(p.to_owned())
+                    .build();
+                let reponse = middleware.transmettre_commande(routage, &cle, true).await?;
+                debug!("Reponse commande sauvegarder cle {:?}", reponse);
+            } else {
+                Err(format!("commandes.recevoir Erreur sauvegarde cle - partition n'est pas fournie"))?
+            }
+        }
+    }
+
+    // Cleanup, retirer certificat du message (stocke externe)
+    message.parsed.retirer_certificats();
+
+    let commande_maj = DocumentRecevoirPost {
+        message: message.parsed,
+        destinataires_user_id: destinataires,
+    };
+
+    // Traiter la transaction
+    //Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+    Ok(sauvegarder_traiter_transaction_serializable(
+        middleware, &commande_maj, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?)
 }
 
 async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait + VerificateurMessage
 {
     debug!("commandes.commande_initialiser_profil Consommer commande : {:?}", & m.message);
     let commande: CommandeInitialiserProfil = m.message.get_msg().map_contenu()?;
@@ -483,7 +415,7 @@ async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, 
 
 async fn commande_maj_contact<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage,
 {
     debug!("commandes.commande_maj_contact Consommer commande : {:?}", & m.message);
     let commande: Contact = m.message.get_msg().map_contenu()?;
@@ -976,7 +908,7 @@ pub struct CommandeGenererClewebpushNotifications {}
 
 async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + ChiffrageFactoryTrait + VerificateurMessage
 {
     debug!("generer_clewebpush_notifications Consommer commande : {:?}", & m.message);
     let commande: CommandeGenererClewebpushNotifications = m.message.get_msg().map_contenu()?;
@@ -1317,7 +1249,7 @@ async fn generer_contenu_notification<M>(
 
 async fn commande_sauvegarder_usager_config_notifications<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage,
 {
     debug!("commande_sauvegarder_usager_config_notifications Consommer : {:?}", & m.message);
     let commande: TransactionSauvegarderUsagerConfigNotifications = m.message.get_msg().map_contenu()?;
@@ -1338,7 +1270,7 @@ async fn commande_sauvegarder_usager_config_notifications<M>(middleware: &M, m: 
 
 async fn commande_sauvegarder_subscription_webpush<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage,
 {
     debug!("commande_sauvegarder_subscription_webpush Consommer : {:?}", & m.message);
     let commande: TransactionSauvegarderSubscriptionWebpush = m.message.get_msg().map_contenu()?;
@@ -1359,7 +1291,7 @@ async fn commande_sauvegarder_subscription_webpush<M>(middleware: &M, m: Message
 
 async fn commande_retirer_subscription_webpush<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage,
 {
     debug!("commande_retirer_subscription_webpush Consommer : {:?}", & m.message);
     let commande: TransactionRetirerSubscriptionWebpush = m.message.get_msg().map_contenu()?;
