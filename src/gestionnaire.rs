@@ -340,13 +340,28 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         Some(options_unique_config)
     ).await?;
 
-    // Index uuid_transaction pour messages_outgoing
+    // Index uuid_transaction pour outgoing
+    let options_unique_outgoing_messageid = IndexOptions {
+        nom_index: Some(String::from("message_id")),
+        unique: true
+    };
+    let champs_index_outgoing_messageid = vec!(
+        ChampIndex {nom_champ: String::from("message.id"), direction: 1},
+    );
+    middleware.create_index(
+        middleware,
+        NOM_COLLECTION_OUTGOING,
+        champs_index_outgoing_messageid,
+        Some(options_unique_outgoing_messageid)
+    ).await?;
+
+    // Index uuid_transaction pour outgoing_processing
     let options_unique_outgoing_transactions_uuid_transaction = IndexOptions {
-        nom_index: Some(String::from("uuid_transaction")),
+        nom_index: Some(String::from("transaction_id")),
         unique: true
     };
     let champs_index_outgoing_transactions_uuid_transactions = vec!(
-        ChampIndex {nom_champ: String::from("uuid_transaction"), direction: 1},
+        ChampIndex {nom_champ: String::from("transaction_id"), direction: 1},
     );
     middleware.create_index(
         middleware,
@@ -355,13 +370,13 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         Some(options_unique_outgoing_transactions_uuid_transaction)
     ).await?;
 
-    // Index uuid_message pour messages_outgoing
+    // Index uuid_message pour outgoing_processing
     let options_unique_outgoing_transactions_uuid_transaction = IndexOptions {
-        nom_index: Some(String::from("uuid_message")),
+        nom_index: Some(String::from("message_id")),
         unique: true
     };
     let champs_index_outgoing_transactions_uuid_transactions = vec!(
-        ChampIndex {nom_champ: String::from("uuid_message"), direction: 1},
+        ChampIndex {nom_champ: String::from("message_id"), direction: 1},
     );
     middleware.create_index(
         middleware,

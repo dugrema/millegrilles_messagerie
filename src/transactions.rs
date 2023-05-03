@@ -118,13 +118,30 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         Err(e) => Err(format!("messagerie.transaction_poster Erreur conversion transaction : {:?}", e))?
     };
 
-    todo!("fix me");
-    // let uuid_message = match &transaction_poster.message.entete {
-    //     Some(e) => Ok(e.uuid_transaction.clone()),
-    //     None => Err(format!("transactions.transaction_poster Entete manquante du message {}", uuid_transaction))
-    // }?;
-    //
-    // // Conserver document dans outgoing et flags dans outgoing_processing
+    // Utiliser le id du message (dans l'enveloppe poster) comme reference du message
+    let message_id = transaction_poster.message.id.clone();
+    let estampille_message = transaction_poster.message.estampille.clone();
+
+    // Convertir le contenu du message en bson
+    let message_contenu = match convertir_to_bson(transaction_poster.message.clone()) {
+        Ok(inner) => inner,
+        Err(e) => Err(format!("messagerie.transaction_poster Erreur conversion transaction {}", uuid_transaction))?
+    };
+
+    // Conserver document dans outgoing et flags dans outgoing_processing
+    let mut doc_outgoing = doc! {
+        "message": message_contenu,
+
+        // Identificateurs
+        // "message_id": &message_id,
+        "user_id": user_id.as_ref(),
+        "fuuids": &transaction_poster.fuuids,
+
+        // Flags
+        "supprime": false,
+        "transfert_complete": false,
+    };
+
     // let mut doc_bson_transaction = match convertir_to_bson(&transaction_poster) {
     //     Ok(d) => d,
     //     Err(e) => Err(format!("transactions.transaction_poster Erreur conversion transaction en bson : {:?}", e))?
@@ -138,93 +155,96 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     // doc_outgoing.insert("supprime", false);
     // doc_outgoing.insert("transfert_complete", false);
     // doc_outgoing.insert(CHAMP_DATE_ENVOI, DateEpochSeconds::from(estampille.to_owned()));
-    //
-    // // Ajouter map destinataires
-    // let mut map_destinataires = Map::new();
-    // for dest in &transaction_poster.get_destinataires() {
-    //     // Remplacer "." par "," pour supporter acces cles MongoDB
-    //     map_destinataires.insert(dest.replace(".", ","), Value::Null);
-    // }
-    // let map_destinataires = match convertir_to_bson(map_destinataires) {
-    //     Ok(m) => m,
-    //     Err(e) => Err(format!("transactions.transaction_poster Erreur conversion map_destinataires en doc_bson : {:?}", e))?
-    // };
-    // doc_outgoing.insert("destinataires", map_destinataires);
-    //
-    // let mut dns_adresses: HashSet<String> = HashSet::new();
-    // let mut destinataires = Array::new();
-    // let liste_destinataires = transaction_poster.get_destinataires();
-    // for dest in liste_destinataires.into_iter() {
-    //     let mut dest_split = dest.split(CONST_ADRESSE_SEPARATEUR_HOST);
-    //     let mut user: &str = match dest_split.next() {
-    //         Some(u) => u,
-    //         None => {
-    //             debug!("dest invalide, on l'ignore : {}", dest);
-    //             continue
-    //         }
-    //     };
-    //     let dns_addr = match dest_split.next() {
-    //         Some(d) => d,
-    //         None => {
-    //             debug!("dest invalide, serveur manquant, on l'ignore : {}", dest);
-    //             continue
-    //         }
-    //     };
-    //
-    //     if user.starts_with(CONST_ADRESSE_PREFIXE_USAGER) {
-    //         user = user.trim_start_matches(CONST_ADRESSE_PREFIXE_USAGER);
-    //     }
-    //     dns_adresses.insert(dns_addr.into());
-    //     let flags = doc! {
-    //         "destinataire": &dest,
-    //         "user": user,
-    //         "dns": dns_addr,
-    //         "processed": false,
-    //         "result": None::<&str>,
-    //     };
-    //
-    //     destinataires.push(Bson::Document(flags));
-    // }
-    //
-    // let dns_adresses: Vec<String> = dns_adresses.into_iter().collect();
-    //
-    // let doc_processing = doc! {
-    //     TRANSACTION_CHAMP_UUID_TRANSACTION: uuid_transaction,
-    //     CHAMP_UUID_MESSAGE: &uuid_message,
-    //     "destinataires": destinataires,
-    //     "user_id": user_id,
-    //     "dns_unresolved": &dns_adresses,
-    //     "idmgs_mapping": doc!{},
-    //     "idmgs_unprocessed": Vec::<String>::new(),
-    //     "attachments": &transaction_poster.message.attachments,
-    //     "created": chrono::Utc::now(),
-    // };
-    //
-    // // Inserer document de message dans outgoing
-    // {
-    //     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
-    //     match collection.insert_one(doc_outgoing, None).await {
-    //         Ok(_) => (),
-    //         Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing {} : {:?}", uuid_transaction, e))?
-    //     }
-    // }
-    //
-    // // Inserer document de traitement dans outgoing_processing
-    // {
-    //     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
-    //     match collection.insert_one(doc_processing, None).await {
-    //         Ok(_) => (),
-    //         Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing_processing {} : {:?}", uuid_transaction, e))?
-    //     }
-    // }
-    //
-    // // Emettre requete resolve vers CoreTopologie
-    // // emettre_evenement_maj_fichier(middleware, &tuuid).await?;
-    // match emettre_requete_resolve(middleware, uuid_transaction, &dns_adresses).await {
-    //     Ok(()) => (),
-    //     Err(e) => Err(format!("transactions.transaction_poster Erreur requete resolve idmg {:?}", e))?,
-    // }
-    //
+
+    // Ajouter map destinataires
+    let mut map_destinataires = Map::new();
+    for dest in &transaction_poster.destinataires {
+        // Remplacer "." par "," pour supporter acces cles MongoDB
+        map_destinataires.insert(dest.replace(".", ","), Value::Null);
+    }
+    let map_destinataires = match convertir_to_bson(map_destinataires) {
+        Ok(m) => m,
+        Err(e) => Err(format!("transactions.transaction_poster Erreur conversion map_destinataires en doc_bson : {:?}", e))?
+    };
+    doc_outgoing.insert("destinataires", map_destinataires);
+
+    let mut dns_adresses: HashSet<String> = HashSet::new();
+    let mut destinataires = Array::new();
+    let liste_destinataires = transaction_poster.get_destinataires();
+    for dest in liste_destinataires.into_iter() {
+        let mut dest_split = dest.split(CONST_ADRESSE_SEPARATEUR_HOST);
+        let mut user: &str = match dest_split.next() {
+            Some(u) => u,
+            None => {
+                debug!("dest invalide, on l'ignore : {}", dest);
+                continue
+            }
+        };
+        let dns_addr = match dest_split.next() {
+            Some(d) => d,
+            None => {
+                debug!("dest invalide, serveur manquant, on l'ignore : {}", dest);
+                continue
+            }
+        };
+
+        if user.starts_with(CONST_ADRESSE_PREFIXE_USAGER) {
+            user = user.trim_start_matches(CONST_ADRESSE_PREFIXE_USAGER);
+        }
+        dns_adresses.insert(dns_addr.into());
+        let flags = doc! {
+            "destinataire": &dest,
+            "user": user,
+            "dns": dns_addr,
+            "processed": false,
+            "result": None::<&str>,
+        };
+
+        destinataires.push(Bson::Document(flags));
+    }
+
+    let dns_adresses: Vec<String> = dns_adresses.into_iter().collect();
+
+    let doc_processing = doc! {
+        "transaction_id": uuid_transaction,
+        CHAMP_UUID_MESSAGE: &message_id,
+        "destinataires": destinataires,
+        "user_id": user_id,
+        "dns_unresolved": &dns_adresses,
+        "idmgs_mapping": doc!{},
+        "idmgs_unprocessed": Vec::<String>::new(),
+        "created": chrono::Utc::now(),
+        "fuuids": transaction_poster.fuuids,
+    };
+
+    // Inserer document de message dans outgoing
+    {
+        let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+        match collection.insert_one(doc_outgoing, None).await {
+            Ok(_) => (),
+            Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing {} : {:?}", uuid_transaction, e))?
+        }
+    }
+
+    // Inserer document de traitement dans outgoing_processing
+    {
+        let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+        match collection.insert_one(doc_processing, None).await {
+            Ok(_) => (),
+            Err(e) => Err(format!("transactions.transaction_poster Erreur insertion vers outgoing_processing {} : {:?}", uuid_transaction, e))?
+        }
+    }
+
+
+    // Emettre requete resolve vers CoreTopologie
+    // emettre_evenement_maj_fichier(middleware, &tuuid).await?;
+    match emettre_requete_resolve(middleware, uuid_transaction, &dns_adresses).await {
+        Ok(()) => (),
+        Err(e) => Err(format!("transactions.transaction_poster Erreur requete resolve idmg {:?}", e))?,
+    }
+
+    todo!("fix me");
+
     // // Declencher pompe a messages si elle n'est pas deja active
     // if let Err(e) = emettre_evenement_pompe(middleware, None).await {
     //     error!("transaction_poster Erreur declencher pompe de messages : {:?}", e);

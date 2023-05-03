@@ -99,7 +99,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
 
 async fn commande_poster<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     let attachements = m.message.parsed.attachements.take();
 
@@ -122,6 +122,16 @@ async fn commande_poster<M>(middleware: &M, mut m: MessageValideAction, gestionn
             } else {
                 Err(format!("commandes.commande_poster: Commande autorisation invalide pour message {:?}", m.correlation_id))?
             }
+        }
+    }
+
+    // Valider le message dans la commande poster. Reutiliser le certificat deja valide pour la commande.
+    {
+        let mut message_serialise = MessageSerialise::from_parsed(m.message.parsed.clone())?;
+        message_serialise.certificat = m.message.certificat.clone();
+        let resultat = middleware.verifier_message(&mut message_serialise, None)?;
+        if resultat.valide() == false {
+            Err(format!("commandes.commande_poster: Message dans la commande {:?} invalide : {:?}", m.correlation_id, resultat))?
         }
     }
 
