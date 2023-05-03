@@ -68,7 +68,7 @@ pub async fn marquer_attachments_fichiers<M>(middleware: &M) -> Result<Vec<Strin
                 // Flag message (transaction) comme etant complete
                 let filtre_update = doc!{
                     "user_id": message.user_id,
-                    "uuid_transaction": message.uuid_transaction,
+                    "uuid_transaction": message.message_id,
                 };
                 let ops = doc!{
                     "$set": { CHAMP_ATTACHMENTS_TRAITES: true },

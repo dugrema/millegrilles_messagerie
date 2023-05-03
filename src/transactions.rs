@@ -479,6 +479,10 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
 
     let mut destinataires_resultat = HashMap::new();
     let now: Bson = DateEpochSeconds::now().into();
+    // let message_incoming: MessageIncoming = match message_recevoir_serialise.parsed.map_contenu() {
+    //     Ok(inner) => inner,
+    //     Err(e) => Err(format!("transactions.transaction_recevoir Erreur map vers MessageIncoming : {:?}", e))?
+    // };
     for d in destinataires.iter() {
         match d.user_id.as_ref() {
             Some(u) => {
@@ -530,14 +534,11 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
 
                 // Evenement de nouveau message pour front-end, notifications
                 //if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
-                // if let Ok(m) = message_recevoir_serialise.parsed.map_contenu::<MessageIncoming>() {
-                //     // let message_mappe: MessageIncoming =
-                //     let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
-                //         .exchanges(vec![L2Prive])
-                //         .partition(u)
-                //         .build();
-                //     middleware.emettre_evenement(routage, &m).await?;
-                // }
+                let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
+                    .exchanges(vec![L2Prive])
+                    .partition(u)
+                    .build();
+                middleware.emettre_evenement(routage, &message_recevoir_serialise.parsed).await?;
             },
             None => {
                 if let Some(adresse_usager) = d.adresse.as_ref() {
@@ -805,7 +806,7 @@ async fn transaction_lu<M, T>(gestionnaire: &GestionnaireMessagerie, middleware:
     };
 
     let flag_lu = transaction_lu.lu;
-    let uuid_message = transaction_lu.uuid_transaction;
+    let uuid_message = transaction_lu.message_id;
     let date_lu = match flag_lu {
         true => Some(transaction.get_estampille()),
         false => None
@@ -858,7 +859,7 @@ async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         Err(e) => Err(format!("transactions.transfert_complete Erreur conversion transaction : {:?}", e))?
     };
 
-    let uuid_message = transaction_mappee.uuid_message.as_str();
+    let uuid_message = transaction_mappee.message_id.as_str();
     let filtre = doc! {CHAMP_UUID_MESSAGE: uuid_message};
     let mut unset_ops = doc!{};
     if let Some(m) = transaction_mappee.message_complete {
@@ -901,7 +902,7 @@ async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
     if message_complete {
         debug!("transfert_complete Conserve flag message complete dans outgoing");
         let filtre = doc!{
-            "uuid_transaction": uuid_message,
+            "message.id": uuid_message,
             "user_id": outgoing_processing.user_id.as_ref(),
         };
         let ops = doc!{
@@ -920,7 +921,7 @@ async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
                 .exchanges(vec![Securite::L2Prive])
                 .partition(user_id.clone())
                 .build();
-            let message = ConfirmerMessageComplete { user_id, uuid_message: uuid_message.to_owned() };
+            let message = ConfirmerMessageComplete { user_id, message_id: uuid_message.to_owned() };
             middleware.emettre_evenement(routage, &message).await?;
         }
     }
@@ -949,7 +950,7 @@ async fn supprimer_message<M, T>(gestionnaire: &GestionnaireMessagerie, middlewa
         Err(e) => Err(format!("transactions.supprimer_message Erreur conversion transaction : {:?}", e))?
     };
 
-    let uuid_transactions = transaction_mappee.uuid_transactions;
+    let uuid_transactions = transaction_mappee.message_ids;
     todo!("fix me");
     // let filtre = doc! {CHAMP_USER_ID: &user_id, TRANSACTION_CHAMP_UUID_TRANSACTION: {"$in": &uuid_transactions}};
     // let ops = doc! {
@@ -1038,7 +1039,7 @@ async fn confirmer_transmission_millegrille<M, T>(gestionnaire: &GestionnaireMes
     };
 
     let filtre = doc!{
-        "uuid_transaction": &transaction_mappee.uuid_message,
+        CHAMP_UUID_MESSAGE: &transaction_mappee.message_id,
         "user_id": &transaction_mappee.user_id,
     };
     let mut set_ops = doc!{};

@@ -339,7 +339,7 @@ async fn traiter_attachments_tiers_work<M>(middleware: &M, trigger: &MessagePomp
             debug!("traiter_attachments_tiers_work Remettre upload attachments vers tiers sur la Q pour message {} idmg {}", uuid_message, idmg);
             // Emettre trigger pour uploader les fichiers
             let commande = CommandePousserAttachments {
-                uuid_message: uuid_message.clone(),
+                message_id: uuid_message.clone(),
                 idmg_destination: idmg.clone(),
             };
             let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, "pousserAttachment")
@@ -662,7 +662,7 @@ pub async fn marquer_outgoing_resultat<M>(
         if let Some(user_id) = &doc_mappe.user_id {
             // Emettre une transaction avec les codes pour chaque usager
             let confirmation = ConfirmerTransmissionMessageMillegrille {
-                uuid_message: uuid_message.to_owned(),
+                message_id: uuid_message.to_owned(),
                 user_id: user_id.clone(),
                 idmg: idmg.to_owned(),
                 destinataires: map_destinataires_code.clone(),
@@ -690,7 +690,7 @@ pub async fn marquer_outgoing_resultat<M>(
 
                 // Emettre trigger pour uploader les fichiers
                 let commande = CommandePousserAttachments {
-                    uuid_message: uuid_message.into(),
+                    message_id: uuid_message.into(),
                     idmg_destination: idmg.into(),
                 };
                 let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, "pousserAttachment")
@@ -722,7 +722,7 @@ pub async fn marquer_outgoing_resultat<M>(
                 .exchanges(vec![Securite::L4Secure])
                 .build();
             let t = TransactionTransfertComplete {
-                uuid_message: uuid_message.into(),
+                message_id: uuid_message.into(),
                 message_complete: Some(true),
                 attachments_completes: Some(true)
             };
@@ -1142,7 +1142,7 @@ pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing
                 .exchanges(vec![Securite::L4Secure])
                 .build();
             let t = TransactionTransfertComplete {
-                uuid_message: doc_outgoing.message_id,
+                message_id: doc_outgoing.message_id,
                 message_complete: Some(true),
                 attachments_completes: Some(true)
             };
@@ -1171,7 +1171,7 @@ async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Err
             let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
             let uuid_message = doc_outgoing.message_id.clone();
             let transaction = TransactionTransfertComplete {
-                uuid_message: doc_outgoing.message_id,
+                message_id: doc_outgoing.message_id,
                 message_complete: Some(true),
                 attachments_completes: None
             };
@@ -1196,7 +1196,7 @@ async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Err
                 },
                 None => {
                     let t = TransactionTransfertComplete {
-                        uuid_message: doc_outgoing.message_id,
+                        message_id: doc_outgoing.message_id,
                         message_complete: None,
                         attachments_completes: Some(true)
                     };

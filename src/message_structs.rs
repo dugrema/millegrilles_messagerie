@@ -196,8 +196,8 @@ pub struct ReponseUseridParNomUsager {
 pub struct RequeteGetMessages {
     pub limit: Option<i64>,
     pub skip: Option<u64>,
-    pub uuid_messages: Option<Vec<String>>,
-    pub uuid_transactions: Option<Vec<String>>,
+    pub message_ids: Option<Vec<String>>,
+    // pub uuid_transactions: Option<Vec<String>>,
     pub messages_envoyes: Option<bool>,
 }
 
@@ -321,7 +321,7 @@ pub struct DocumentIncoming {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingReference {
-    pub uuid_transaction: String,
+    pub message_id: String,
     pub lu: Option<bool>,
     pub supprime: bool,
     pub date_reception: Option<DateEpochSeconds>,
@@ -331,14 +331,14 @@ pub struct MessageIncomingReference {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingAttachments {
-    pub uuid_transaction: String,
+    pub message_id: String,
     pub attachments: Option<HashMap<String, bool>>,
     pub attachments_traites: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageOutgoing {
-    pub uuid_transaction: String,
+    pub message_id: String,
     pub supprime: bool,
     pub date_envoi: DateEpochSeconds,
     pub message_chiffre: String,
@@ -348,13 +348,13 @@ pub struct MessageOutgoing {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ParametresGetPermissionMessages {
-    pub uuid_transaction_messages: Vec<String>,
+    pub message_ids: Vec<String>,
     pub messages_envoyes: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingProjectionPermission {
-    pub uuid_transaction: String,
+    pub message_ids: String,
     pub hachage_bytes: Option<String>,
     pub ref_hachage_bytes: Option<String>,
     pub attachments: Option<HashMap<String, bool>>,
@@ -376,7 +376,7 @@ impl MessageIncomingProjectionPermission {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageOutgoingProjectionPermission {
-    pub uuid_transaction: String,
+    pub message_id: String,
     pub hachage_bytes: String,
     pub attachments: Option<Vec<String>>,
 }
@@ -447,20 +447,20 @@ pub struct AdresseUserId {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeLu {
-    pub uuid_transaction: String,
+    pub message_id: String,
     pub lu: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionTransfertComplete {
-    pub uuid_message: String,
+    pub message_id: String,
     pub message_complete: Option<bool>,
     pub attachments_completes: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TransactionSupprimerMessage {
-    pub uuid_transactions: Vec<String>,
+    pub message_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -502,7 +502,7 @@ pub struct FicheApplication {
 pub struct CommandeConfirmerTransmission {
     pub code: i32,
     pub idmg: String,
-    pub uuid_message: String,
+    pub message_id: String,
     pub destinataires: Option<Vec<ConfirmerDestinataire>>,
 }
 
@@ -514,7 +514,7 @@ pub struct ConfirmerDestinataire {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandePousserAttachments {
-    pub uuid_message: String,
+    pub message_id: String,
     pub idmg_destination: String,
 }
 
@@ -528,7 +528,7 @@ pub struct ReponseProchainAttachment {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeUploadAttachment {
-    pub uuid_message: String,
+    pub message_id: String,
     pub idmg: String,
     pub fuuid: String,
     pub code: u32,
@@ -561,7 +561,7 @@ pub struct SortKey {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeVerifierExistanceFuuidsMessage {
-    pub uuid_message: String,
+    pub message_id: String,
     pub fuuids: Vec<String>,
 }
 
@@ -578,7 +578,7 @@ pub struct EvenementFichiersConsigne {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingProjectionAttachments {
     pub user_id: String,
-    pub uuid_transaction: String,
+    pub message_id: String,
     pub attachments: Option<HashMap<String, bool>>,
     pub attachments_recus: Option<bool>,
 }
@@ -620,12 +620,12 @@ pub struct ReponseRecevoirMessages {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfirmerMessageComplete {
     pub user_id: String,
-    pub uuid_message: String,
+    pub message_id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfirmerTransmissionMessageMillegrille {
-    pub uuid_message: String,
+    pub message_id: String,
     pub user_id: String,
     pub idmg: String,
     pub destinataires: Vec<ConfirmerDestinataire>,
@@ -701,7 +701,7 @@ pub struct UsagerNotificationsOutgoing {
     pub derniere_notification: DateTime<Utc>,
     #[serde(deserialize_with="deserialize_chrono_datetime_from_bson_datetime")]
     pub expiration_lock_notifications: DateTime<Utc>,
-    pub uuid_transactions_notifications: Option<Vec<String>>,
+    pub message_id_notifications: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -482,7 +482,7 @@ async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideActi
     let commande: CommandeConfirmerTransmission = m.message.get_msg().map_contenu()?;
     debug!("commande_confirmer_transmission Commande parsed : {:?}", commande);
 
-    let uuid_message = commande.uuid_message.as_str();
+    let uuid_message = commande.message_id.as_str();
     let idmg = commande.idmg.as_str();
 
     // let destinataires = match commande.destinataires.as_ref() {
@@ -514,7 +514,7 @@ async fn commande_prochain_attachment<M>(middleware: &M, m: MessageValideAction,
     let commande: CommandeProchainAttachment = m.message.get_msg().map_contenu()?;
     debug!("commande_confirmer_transmission Commande parsed : {:?}", commande);
 
-    let uuid_message = commande.uuid_message.as_str();
+    let uuid_message = commande.message_id.as_str();
     let idmg = commande.idmg_destination.as_str();
 
     let filtre = doc! { CHAMP_UUID_MESSAGE: uuid_message };
@@ -702,7 +702,7 @@ async fn commande_upload_attachment<M>(middleware: &M, m: MessageValideAction)
     debug!("commande_upload_attachment parsed : {:?}", evenement);
 
     let idmg = evenement.idmg.as_str();
-    let uuid_message = evenement.uuid_message.as_str();
+    let uuid_message = evenement.message_id.as_str();
     let fuuid = evenement.fuuid.as_str();
     let ts_courant = Utc::now().timestamp();
 
@@ -783,7 +783,7 @@ async fn commande_fuuid_verifier_existance<M>(middleware: &M, m: MessageValideAc
             "$set": set_ops,
             "$currentDate": {CHAMP_MODIFICATION: true},
         };
-        let filtre = doc! { "uuid_message": &commande.uuid_message };
+        let filtre = doc! { CHAMP_UUID_MESSAGE: &commande.message_id };
         let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
         collection.update_many(filtre, ops, None).await?;
     }
@@ -1215,7 +1215,7 @@ async fn generer_contenu_notification<M>(
     -> Result<ContenuNotification, Box<dyn Error>>
     where M: GenerateurMessages
 {
-    let nombre_notifications = match notifications.uuid_transactions_notifications.as_ref() {
+    let nombre_notifications = match notifications.message_id_notifications.as_ref() {
         Some(inner) => inner.len(),
         None => 0
     };

@@ -119,11 +119,11 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
         .build();
     let mut filtre = doc!{CHAMP_USER_ID: user_id};
 
-    if let Some(um) = requete.uuid_transactions {
-        filtre.insert("uuid_transaction", doc!{"$in": um});
-    }
+    // if let Some(um) = requete.uuid_transactions {
+    //     filtre.insert("uuid_transaction", doc!{"$in": um});
+    // }
 
-    if let Some(um) = requete.uuid_messages {
+    if let Some(um) = requete.message_ids {
         filtre.insert("uuid_messages", doc!{"$in": um});
     }
 
@@ -158,8 +158,8 @@ async fn requete_get_messages_attachments<M>(middleware: &M, m: MessageValideAct
         .build();
     let mut filtre = doc!{CHAMP_USER_ID: user_id};
 
-    if let Some(um) = requete.uuid_transactions {
-        filtre.insert("uuid_transaction", doc!{"$in": um});
+    if let Some(um) = requete.message_ids {
+        filtre.insert("message.id", doc!{"$in": um});
     }
 
     debug!("requete_get_messages Filtre {:?}", filtre);
@@ -322,7 +322,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
 
     let mut filtre = doc!{
         "user_id": &user_id,
-        "uuid_transaction": {"$in": &requete.uuid_transaction_messages},
+        "uuid_transaction": {"$in": &requete.message_ids},
     };
     let mut projection = doc! {
         "uuid_transaction": true,
