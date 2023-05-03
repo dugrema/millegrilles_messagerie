@@ -168,12 +168,14 @@ pub struct DestinataireInfo {
 pub struct CommandeRecevoirPost {
     pub message: MessageMilleGrille,
     pub destinataires: Vec<String>,
+    pub fuuids: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocumentRecevoirPost {
     pub message: MessageMilleGrille,
     pub destinataires_user_id: Vec<DestinataireInfo>,
+    pub fuuids: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -230,73 +232,91 @@ pub struct RequeteGetReferenceMessages {
 //     pub attachments_traites: Option<bool>,
 // }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AttachedFileDecryption {
-    pub format: String,
-    pub key: Option<String>,
-    pub header: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AttachedImage {
-    pub data: Option<String>,
-    pub mimetype: Option<String>,
-    pub width: Option<i64>,
-    pub height: Option<i64>,
-    pub file: Option<String>,
-    pub size: Option<i64>,
-    pub decryption: Option<AttachedFileDecryption>
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AttachedVideo {
-    pub mimetype: Option<String>,
-    pub width: Option<i64>,
-    pub height: Option<i64>,
-    pub file: Option<String>,
-    pub size: Option<i64>,
-    pub codec: Option<String>,
-    pub bitrate: Option<i64>,
-    pub quality: Option<i64>,
-    pub decryption: Option<AttachedFileDecryption>
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AttachedMedia {
-    pub animated: Option<bool>,
-    pub duration: Option<i64>,
-    pub height: Option<i64>,
-    pub width: Option<i64>,
-    pub video_codec: Option<String>,
-    pub images: Option<Vec<AttachedImage>>,
-    pub videos: Option<Vec<AttachedVideo>>,
-    pub decryption: Option<AttachedFileDecryption>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AttachedFile {
-    pub name: String,
-    pub date: DateEpochSeconds,
-    pub digest: String,
-    pub size: Option<i64>,
-    pub encrypted_size: Option<i64>,
-    pub file: String,
-    pub mimetype: String,
-    pub media: Option<AttachedMedia>
-}
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct AttachedFileDecryption {
+//     pub format: String,
+//     pub key: Option<String>,
+//     pub header: Option<String>,
+// }
+//
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct AttachedImage {
+//     pub data: Option<String>,
+//     pub mimetype: Option<String>,
+//     pub width: Option<i64>,
+//     pub height: Option<i64>,
+//     pub file: Option<String>,
+//     pub size: Option<i64>,
+//     pub decryption: Option<AttachedFileDecryption>
+// }
+//
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct AttachedVideo {
+//     pub mimetype: Option<String>,
+//     pub width: Option<i64>,
+//     pub height: Option<i64>,
+//     pub file: Option<String>,
+//     pub size: Option<i64>,
+//     pub codec: Option<String>,
+//     pub bitrate: Option<i64>,
+//     pub quality: Option<i64>,
+//     pub decryption: Option<AttachedFileDecryption>
+// }
+//
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct AttachedMedia {
+//     pub animated: Option<bool>,
+//     pub duration: Option<i64>,
+//     pub height: Option<i64>,
+//     pub width: Option<i64>,
+//     pub video_codec: Option<String>,
+//     pub images: Option<Vec<AttachedImage>>,
+//     pub videos: Option<Vec<AttachedVideo>>,
+//     pub decryption: Option<AttachedFileDecryption>,
+// }
+//
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct AttachedFile {
+//     pub name: String,
+//     pub date: DateEpochSeconds,
+//     pub digest: String,
+//     pub size: Option<i64>,
+//     pub encrypted_size: Option<i64>,
+//     pub file: String,
+//     pub mimetype: String,
+//     pub media: Option<AttachedMedia>
+// }
+//
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct MessageIncoming {
+//     pub from: String,
+//     pub subject: Option<String>,
+//     pub version: i64,
+//     pub format: String,
+//     pub content: String,
+//     pub to: Option<Vec<String>>,
+//     pub reply_to: Option<String>,
+//     pub cc: Option<Vec<String>>,
+//     pub thread: Option<String>,
+//     pub files: Option<Vec<AttachedFile>>,
+// }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncoming {
-    pub from: String,
-    pub subject: Option<String>,
-    pub version: i64,
-    pub format: String,
-    pub content: String,
-    pub to: Option<Vec<String>>,
-    pub reply_to: Option<String>,
-    pub cc: Option<Vec<String>>,
-    pub thread: Option<String>,
-    pub files: Option<Vec<AttachedFile>>,
+    pub message: MessageMilleGrille,
+    pub fuuids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocumentIncoming {
+    pub message: MessageMilleGrille,
+    pub user_id: String,
+    pub supprime: bool,
+    pub lu: bool,
+    pub date_reception: DateEpochSeconds,
+    pub date_ouverture: Option<DateEpochSeconds>,
+    pub fichiers: Option<HashMap<String, bool>>,
+    pub fichiers_completes: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -594,7 +614,7 @@ pub struct ConfirmationEtatFuuid {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReponseRecevoirMessages {
     pub ok: Option<bool>,
-    pub usagers: HashMap<String, i32>,
+    pub usagers: Option<HashMap<String, i32>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

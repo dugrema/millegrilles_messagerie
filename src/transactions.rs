@@ -350,10 +350,13 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         Ok(t) => t,
         Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
     };
+
     let mut message_recevoir_serialise = match MessageSerialise::from_parsed(message_recevoir.message) {
         Ok(m) => Ok(m),
         Err(e) => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise : {:?}", e))
     }?;
+
+    let message_id = message_recevoir_serialise.parsed.id.clone();
 
     let message_local = match message_recevoir_serialise.parsed.origine.as_ref() {
         Some(inner) => inner.as_str() == middleware.idmg(),
@@ -380,13 +383,12 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         }
     };
 
-    // // Conserver message pour chaque destinataires locaux
-    // //let transaction_poster: TransactionPoster = message_recevoir_serialise
+    // Conserver message pour chaque destinataires locaux
     // let message_chiffre = message_enveloppe.message_chiffre;
     // let hachage_bytes = message_enveloppe.hachage_bytes;
     // let fingerprint_usager = message_enveloppe.fingerprint_certificat;
     // let attachments = message_enveloppe.attachments;
-    //
+
     // // let destinataires = match message_recevoir.destinataires_user_id.as_ref() {
     // //     Some(inner) => {
     // //         if inner.len() > 0 {
@@ -419,19 +421,13 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     // //     }
     // //     (destinataires, destinataires_adresses)
     // // };
-    //
-    // // Resolve destinataires nom_usager => user_id
-    // let destinataires = match message_recevoir.destinataires_user_id.as_ref() {
-    //     Some(inner) => {
-    //         if inner.len() > 0 {
-    //             inner
-    //         } else {
-    //             Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
-    //         }
-    //     },
-    //     None => Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id"))?
-    // };
-    //
+
+    // Resolve destinataires nom_usager => user_id
+    let destinataires = message_recevoir.destinataires_user_id;
+    if destinataires.len() == 0 {
+        Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
+    }
+
     // // let reponse_mappee: ReponseUseridParNomUsager = {
     // //     let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
     // //         .exchanges(vec![Securite::L4Secure])
@@ -450,9 +446,9 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     // //         _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
     // //     }
     // // };
-    //
-    // let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    //
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+
     // let certificat_usager = middleware.get_certificat(fingerprint_usager.as_str()).await;
     // let certificat_usager_pem: Vec<String> = match certificat_usager {
     //     Some(c) => {
@@ -461,110 +457,110 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     //     },
     //     None => Err(format!("transactions.transaction_recevoir Erreur insertion message {}, certificat {} introuvable", uuid_transaction, fingerprint_usager))?
     // };
-    //
-    // let attachments_recus = match attachments.as_ref() {
-    //     // Si on a des attachments et le message est local : true.
-    //     // Sinon aucuns attachments => true, au moins 1 => false
-    //     Some(a) => message_local || a.is_empty(),
-    //     None => true
-    // };
-    //
-    // let attachments_bson = match attachments.as_ref() {
-    //     Some(a) => {
-    //         let mut attachments_bson = doc!{};
-    //         for fuuid in a {
-    //             // Si message local, on marque recu. Sinon on met false.
-    //             attachments_bson.insert(fuuid.to_owned(), message_local);
-    //         }
-    //         Some(attachments_bson)
-    //     },
-    //     None => None
-    // };
-    //
-    // let mut destinataires_resultat = HashMap::new();
-    // let now: Bson = DateEpochSeconds::now().into();
-    // for d in destinataires {
-    //     match d.user_id.as_ref() {
-    //         Some(u) => {
-    //             // Sauvegarder message pour l'usager
-    //             debug!("transaction_recevoir Sauvegarder message pour usager : {}", u);
-    //
-    //             let mut doc_user_reception = doc! {
-    //                 "user_id": u,
-    //                 "uuid_transaction": &uuid_transaction,
-    //                 "uuid_message": &uuid_message,
-    //                 "lu": false,
-    //                 CHAMP_SUPPRIME: false,
-    //                 "date_reception": &now,
-    //                 "date_ouverture": None::<&str>,
-    //                 "certificat_message": &certificat_usager_pem,
-    //                 "message_chiffre": &message_chiffre,
-    //                 "hachage_bytes": &hachage_bytes,
-    //                 CHAMP_ATTACHMENTS: &attachments_bson,
-    //                 CHAMP_ATTACHMENTS_TRAITES: &attachments_recus,
-    //             };
-    //
-    //             if let Some(cm) = certificat_millegrille_pem.as_ref() {
-    //                 doc_user_reception.insert("certificat_millegrille", cm);
-    //             }
-    //
-    //             debug!("transaction_recevoir Inserer message {:?}", doc_user_reception);
-    //             match collection.insert_one(&doc_user_reception, None).await {
-    //                 Ok(_r) => {
-    //                     // Marquer usager comme trouve et traite
-    //                     if let Some(adresse_usager) = d.adresse.as_ref() {
-    //                         destinataires_resultat.insert(adresse_usager.to_owned(), 201);  // Message cree pour usager
-    //                     }
-    //                 },
-    //                 Err(e) => {
-    //                     let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
-    //                     if erreur_duplication {
-    //                         warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", doc_user_reception);
-    //                         if let Some(adresse_usager) = d.adresse.as_ref() {
-    //                             destinataires_resultat.insert(adresse_usager.to_owned(), 200);  // Message deja traite
-    //                         }
-    //                         return middleware.reponse_ok();
-    //                     } else {
-    //                         if let Some(adresse_usager) = d.adresse.as_ref() {
-    //                             destinataires_resultat.insert(adresse_usager.to_owned(), 500);  // Erreur de traitement
-    //                         }
-    //                         Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
-    //                     }
-    //                 }
-    //             }
-    //
-    //             // Evenement de nouveau message pour front-end, notifications
-    //             if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
-    //                 // let message_mappe: MessageIncoming =
-    //                 let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
-    //                     .exchanges(vec![L2Prive])
-    //                     .partition(u)
-    //                     .build();
-    //                 middleware.emettre_evenement(routage, &m).await?;
-    //             }
-    //         },
-    //         None => {
-    //             if let Some(adresse_usager) = d.adresse.as_ref() {
-    //                 destinataires_resultat.insert(adresse_usager.to_owned(), 404);  // Usager inconnu
-    //             }
-    //         }
-    //     }
-    // }
-    //
-    // if message_local {
-    //     // Marquer le message comme traiter dans "outgoing local"
-    //     let destinataires: Vec<ConfirmerDestinataire> = destinataires_resultat.iter().map(|(adresse, code)|{
-    //         ConfirmerDestinataire {code: code.to_owned(), destinataire: adresse.to_owned()}
-    //     }).collect();
-    //     marquer_outgoing_resultat(
-    //         middleware,
-    //         uuid_message.as_str(),
-    //         idmg_local.as_str(),
-    //         Some(&destinataires),
-    //         true
-    //     ).await?;
-    // }
-    //
+
+    let attachements_recus = match message_recevoir.fuuids.as_ref() {
+        // Si on a des attachments et le message est local : true.
+        // Sinon aucuns attachments => true, au moins 1 => false
+        Some(a) => message_local || a.is_empty(),
+        None => true
+    };
+
+    let map_attachements = match message_recevoir.fuuids.as_ref() {
+        Some(a) => {
+            let mut map_attachements = HashMap::new();
+            for fuuid in a {
+                // Si message local, on marque recu. Sinon on met false.
+                map_attachements.insert(fuuid.to_owned(), message_local);
+            }
+            Some(map_attachements)
+        },
+        None => None
+    };
+
+    let mut destinataires_resultat = HashMap::new();
+    let now: Bson = DateEpochSeconds::now().into();
+    for d in destinataires.iter() {
+        match d.user_id.as_ref() {
+            Some(u) => {
+                // Sauvegarder message pour l'usager
+                debug!("transaction_recevoir Sauvegarder message pour usager : {}", u);
+
+                let message_document = DocumentIncoming {
+                    message: message_recevoir_serialise.parsed.clone(),
+                    user_id: u.to_owned(),
+                    supprime: false,
+                    lu: false,
+                    date_reception: DateEpochSeconds::now(),
+                    date_ouverture: None,
+                    fichiers: map_attachements.clone(),
+                    fichiers_completes: attachements_recus,
+                };
+
+                {
+                    let message_bson = match convertir_to_bson(&message_document) {
+                        Ok(inner) => inner,
+                        Err(e) => Err(format!("transactions.transaction_recevoir Erreur message {}, echec conversion en bson : {:?}", uuid_transaction, e))?
+                    };
+
+                    debug!("transaction_recevoir Inserer message {:?}", message_bson);
+                    match collection.insert_one(message_bson, None).await {
+                        Ok(_r) => {
+                            // Marquer usager comme trouve et traite
+                            if let Some(adresse_usager) = d.adresse.as_ref() {
+                                destinataires_resultat.insert(adresse_usager.to_owned(), 201);  // Message cree pour usager
+                            }
+                        },
+                        Err(e) => {
+                            let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+                            if erreur_duplication {
+                                warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", message_document);
+                                if let Some(adresse_usager) = d.adresse.as_ref() {
+                                    destinataires_resultat.insert(adresse_usager.to_owned(), 200);  // Message deja traite
+                                }
+                                return middleware.reponse_ok();
+                            } else {
+                                if let Some(adresse_usager) = d.adresse.as_ref() {
+                                    destinataires_resultat.insert(adresse_usager.to_owned(), 500);  // Erreur de traitement
+                                }
+                                Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
+                            }
+                        }
+                    }
+                }
+
+                // Evenement de nouveau message pour front-end, notifications
+                //if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
+                // if let Ok(m) = message_recevoir_serialise.parsed.map_contenu::<MessageIncoming>() {
+                //     // let message_mappe: MessageIncoming =
+                //     let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
+                //         .exchanges(vec![L2Prive])
+                //         .partition(u)
+                //         .build();
+                //     middleware.emettre_evenement(routage, &m).await?;
+                // }
+            },
+            None => {
+                if let Some(adresse_usager) = d.adresse.as_ref() {
+                    destinataires_resultat.insert(adresse_usager.to_owned(), 404);  // Usager inconnu
+                }
+            }
+        }
+    }
+
+    if message_local {
+        // Marquer le message comme traiter dans "outgoing local"
+        let destinataires: Vec<ConfirmerDestinataire> = destinataires_resultat.iter().map(|(adresse, code)|{
+            ConfirmerDestinataire {code: code.to_owned(), destinataire: adresse.to_owned()}
+        }).collect();
+        marquer_outgoing_resultat(
+            middleware,
+            message_id.as_str(),
+            middleware.idmg(),
+            Some(&destinataires),
+            true
+        ).await?;
+    }
+
     // if ! attachments_recus {
     //     if let Some(a) = attachments.as_ref() {
     //         debug!("transaction_recevoir Emettre une verification aupres de fichiers pour existance de {:?}", attachments);
@@ -575,25 +571,24 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     //         middleware.transmettre_commande(routage, &commande, false).await?;
     //     }
     // }
-    //
-    // if let Err(e) = emettre_notifications(
-    //     middleware, destinataires, uuid_transaction.as_str(), uuid_message.as_str()).await {
-    //     warn!("transaction_recevoir Erreur emission notifications : {:?}", e);
-    // }
-    //
-    // let reponse = json!({"ok": true /*, "usagers": destinataires_resultat*/});
-    // match middleware.formatter_reponse(&reponse, None) {
-    //     Ok(r) => Ok(Some(r)),
-    //     Err(e) => Err(format!("transactions.transaction_recevoir Erreur formattage reponse : {:?}", e))?
-    // }
-    todo!("fix me");
+
+    if let Err(e) = emettre_notifications(
+        middleware, &destinataires, message_id.as_str()).await {
+        warn!("transaction_recevoir Erreur emission notifications : {:?}", e);
+    }
+
+    let reponse = json!({"ok": true , "usagers": &destinataires_resultat});
+    match middleware.formatter_reponse(&reponse, None) {
+        Ok(r) => Ok(Some(r)),
+        Err(e) => Err(format!("transactions.transaction_recevoir Erreur formattage reponse : {:?}", e))?
+    }
 }
 
-pub async fn emettre_notifications<M>(middleware: &M, usagers: &Vec<DestinataireInfo>, uuid_transaction: &str, uuid_message: &str)
+pub async fn emettre_notifications<M>(middleware: &M, usagers: &Vec<DestinataireInfo>, uuid_message: &str)
     -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
-    debug!("emettre_notifications uuid_transaction {}, uuid_message {}", uuid_transaction, uuid_message);
+    debug!("emettre_notifications uuid_message {}", uuid_message);
     // Trouver user_ids avec notifications activees, emettre trigger
     let mut user_ids = Vec::new();
     for d in usagers {
@@ -617,17 +612,17 @@ pub async fn emettre_notifications<M>(middleware: &M, usagers: &Vec<Destinataire
             },
             None => continue
         };
-        ajouter_notification_usager(middleware, user_id, uuid_transaction, uuid_message).await?;
+        ajouter_notification_usager(middleware, user_id, uuid_message).await?;
     }
 
     Ok(())
 }
 
-async fn ajouter_notification_usager<M>(middleware: &M, user_id: &str, uuid_transaction: &str, uuid_message: &str)
+async fn ajouter_notification_usager<M>(middleware: &M, user_id: &str, uuid_message: &str)
     -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
-    debug!("Conserver trigger notification pour {} sur uuid_transaction {}, uuid_message {}", user_id, uuid_transaction, uuid_message);
+    debug!("Conserver trigger notification pour {} sur uuid_message {}", user_id, uuid_message);
 
     let filtre = doc! { CHAMP_USER_ID: user_id };
     let collection = middleware.get_collection(NOM_COLLECTION_NOTIFICATIONS_OUTGOING)?;
@@ -638,26 +633,27 @@ async fn ajouter_notification_usager<M>(middleware: &M, user_id: &str, uuid_tran
         CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: Utc::now(),
     };
 
-    let push_ops = doc! {
-        CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: uuid_transaction,
-    };
-
-    let ops = doc! {
-        "$setOnInsert": set_on_insert_ops,
-        "$push": push_ops,
-        "$set": {
-            CHAMP_NOTIFICATIONS_PENDING: true,
-        },
-        "$currentDate": {
-            CHAMP_MODIFICATION: true,
-            CHAMP_DERNIERE_NOTIFICATION: true,
-        }
-    };
-
-    let options = UpdateOptions::builder().upsert(true).build();
-    collection.update_one(filtre, ops, Some(options)).await?;
-
-    Ok(())
+    todo!("fix me");
+    // let push_ops = doc! {
+    //     CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: uuid_transaction,
+    // };
+    //
+    // let ops = doc! {
+    //     "$setOnInsert": set_on_insert_ops,
+    //     "$push": push_ops,
+    //     "$set": {
+    //         CHAMP_NOTIFICATIONS_PENDING: true,
+    //     },
+    //     "$currentDate": {
+    //         CHAMP_MODIFICATION: true,
+    //         CHAMP_DERNIERE_NOTIFICATION: true,
+    //     }
+    // };
+    //
+    // let options = UpdateOptions::builder().upsert(true).build();
+    // collection.update_one(filtre, ops, Some(options)).await?;
+    //
+    // Ok(())
 }
 
 async fn transaction_initialiser_profil<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>

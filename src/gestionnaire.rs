@@ -419,12 +419,12 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
 
     // Index user_id, uuid_transaction pour messages incoming
     let options_incoming_userid = IndexOptions {
-        nom_index: Some(String::from("userid_uuidtransaction")),
+        nom_index: Some(String::from("userid_message")),
         unique: true
     };
     let champs_incoming_userid = vec!(
         ChampIndex {nom_champ: String::from("user_id"), direction: 1},
-        ChampIndex {nom_champ: String::from("uuid_transaction"), direction: 1},
+        ChampIndex {nom_champ: String::from("message.id"), direction: 1},
     );
     middleware.create_index(
         middleware,
@@ -446,22 +446,6 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
         NOM_COLLECTION_INCOMING,
         champs_attachments_fuuids,
         Some(options_attachments_fuuids)
-    ).await?;
-
-    // Index uuid_message/user_id pour messages incoming
-    let options_uuidmessage_userid = IndexOptions {
-        nom_index: Some(String::from("uuidtransaction_userid")),
-        unique: true
-    };
-    let champs_uuidmessage_userid = vec!(
-        ChampIndex {nom_champ: String::from("uuid_message"), direction: 1},
-        ChampIndex {nom_champ: String::from("user_id"), direction: 1},
-    );
-    middleware.create_index(
-        middleware,
-        NOM_COLLECTION_INCOMING,
-        champs_uuidmessage_userid,
-        Some(options_uuidmessage_userid)
     ).await?;
 
     // Index uuid_message/user_id pour messages incoming

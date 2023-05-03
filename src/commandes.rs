@@ -326,6 +326,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     let commande_maj = DocumentRecevoirPost {
         message: message.parsed,
         destinataires_user_id: destinataires,
+        fuuids: commande.fuuids,
     };
 
     // Traiter la transaction

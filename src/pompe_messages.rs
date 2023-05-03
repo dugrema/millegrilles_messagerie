@@ -473,6 +473,7 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     let commande = CommandeRecevoirPost{
         message: commande_poster.message,
         destinataires: destinataires.clone(),
+        fuuids: commande_poster.fuuids,
     };
 
     let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_RECEVOIR)
@@ -1036,7 +1037,7 @@ async fn expirer_message_retry<M>(middleware: &M, trigger: &MessagePompe) -> Res
         // Expansion de tous les idmgs par message
         // Convertir idmgs_mapping en array, et faire unwind. Expose next_push_time.
         doc! {"$project": {
-            "uuid_transaction": 1,
+            "message_id": 1,
             "idmgs_mapping": {"$objectToArray": "$idmgs_mapping"}
         }},
         doc! { "$unwind": {"path": "$idmgs_mapping"} },
@@ -1045,7 +1046,7 @@ async fn expirer_message_retry<M>(middleware: &M, trigger: &MessagePompe) -> Res
         doc! {"$match": {"idmgs_mapping.v.push_count": {"$gte": RETRY_LIMIT} }},
 
         doc! {"$project": {
-            "uuid_transaction": 1,
+            "message_id": 1,
             "idmg": "$idmgs_mapping.k",
             "push_count": "$idmgs_mapping.v.push_count",
         }},
@@ -1060,10 +1061,10 @@ async fn expirer_message_retry<M>(middleware: &M, trigger: &MessagePompe) -> Res
     while let Some(r) = curseur.next().await {
         let doc = r?;
         debug!("expirer_message_retry Result a expirer : {:?}", doc);
-        let uuid_transaction = doc.get_str("uuid_transaction")?;
+        let uuid_transaction = doc.get_str("message_id")?;
         let idmg = doc.get_str("idmg")?;
 
-        let filtre = doc! { "uuid_transaction": uuid_transaction };
+        let filtre = doc! { "message_id": uuid_transaction };
         let ops = doc! {
             "$pull": {
                 "idmgs_unprocessed": &idmg,
