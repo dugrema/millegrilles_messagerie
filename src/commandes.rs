@@ -188,32 +188,67 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     let mut commande: CommandeRecevoirPost = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_recevoir Commande nouvelle versions parsed : {:?}", commande);
 
+    let user_id = m.get_user_id();
+    match m.verifier_exchanges(vec!(Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
+        true => {
+            // Compte systeme local, ok
+        },
+        false => {
+            // // Autorisation: Action usager avec compte prive ou delegation globale
+            // let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
+            // if role_prive && user_id.is_some() {
+            //     // Ok
+            // } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
+            //     // Ok
+            // } else {
+                Err(format!("commandes.commande_recevoir: Commande autorisation invalide pour message {:?}", m.correlation_id))?
+            // }
+        }
+    }
+
+    let mut message = MessageSerialise::from_parsed(commande.message)?;
+
+    // Charger les certificats pour valider le message encapsule
+    let est_local = message.parsed.origine == Some(middleware.get_enveloppe_signature().idmg()?);
+    let certificat_millegrille = match est_local {
+        true => None,  // Pas besoin de charger le certififcat CA local
+        false => {
+            // Charger le certificat CA distant
+            match message.parsed.millegrille.clone() {
+                Some(inner) => {
+                    Some(middleware.charger_enveloppe(&vec![inner], None, None).await?)
+                },
+                None => Err(format!("commandes.commande_recevoir: Certificat CA absent du message encapsule tiers {:?}", m.correlation_id))?
+            }
+        }
+    };
+    let certificat_message = match message.parsed.certificat.as_ref() {
+        Some(inner) => {
+            let ca_pem = match message.parsed.millegrille.as_ref() {
+                Some(inner) => Some(inner.as_str()),
+                None => None
+            };
+            middleware.charger_enveloppe(inner, None, ca_pem).await?
+        },
+        None => {
+            match middleware.get_certificat(message.parsed.pubkey.as_str()).await {
+                Some(inner) => inner,
+                None => Err(format!("commandes.commande_recevoir: Certificat absent du message encapsule {:?}", m.correlation_id))?
+            }
+        }
+    };
+
+    // Verifier le message encapsule
+    message.certificat = Some(certificat_message);
+    message.millegrille = certificat_millegrille;
+    let resultat_verification = middleware.verifier_message(&mut message, None)?;
+    match resultat_verification.valide() {
+        true => debug!("commande_recevoir Message encapsule dans la commande recevoir est valide"),
+        false => Err(format!("commandes.commande_recevoir: Message encapsule est invalide {:?} : {:?}", m.correlation_id, resultat_verification))?
+    }
+
     todo!("fix me");
-    // {
-    //     let version_commande = m.message.get_entete().version;
-    //     if version_commande != 1 {
-    //         Err(format!("commandes.commande_recevoir: Version non supportee {:?}", version_commande))?
-    //     }
-    // }
-    //
-    // let user_id = m.get_user_id();
-    // match m.verifier_exchanges(vec!(Securite::L2Prive, Securite::L3Protege, Securite::L4Secure)) {
-    //     true => {
-    //         // Compte systeme
-    //     },
-    //     false => {
-    //         // Autorisation: Action usager avec compte prive ou delegation globale
-    //         let role_prive = m.verifier_roles(vec![RolesCertificats::ComptePrive]);
-    //         if role_prive && user_id.is_some() {
-    //             // Ok
-    //         } else if m.verifier_delegation_globale(DELEGATION_GLOBALE_PROPRIETAIRE) {
-    //             // Ok
-    //         } else {
-    //             Err(format!("commandes.commande_recevoir: Commande autorisation invalide pour message {:?}", m.correlation_id))?
-    //         }
-    //     }
-    // }
-    //
+
     // let cert_millegrille_pem = match commande.message.get("_millegrille") {
     //     Some(c) => {
     //         debug!("commande_recevoir Utiliser certificat de millegrille pour valider : {:?}", c);
@@ -225,7 +260,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     //         None
     //     }
     // };
-    //
+
     // let enveloppe_cert: Arc<EnveloppeCertificat> = match commande.message.get("_certificat") {
     //     Some(c) => {
     //         let certificat_pem: Vec<String> = serde_json::from_value(c.to_owned())?;

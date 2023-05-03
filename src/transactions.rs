@@ -243,22 +243,20 @@ async fn transaction_poster<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         Err(e) => Err(format!("transactions.transaction_poster Erreur requete resolve idmg {:?}", e))?,
     }
 
-    todo!("fix me");
+    // Declencher pompe a messages si elle n'est pas deja active
+    if let Err(e) = emettre_evenement_pompe(middleware, None).await {
+        error!("transaction_poster Erreur declencher pompe de messages : {:?}", e);
+    }
 
-    // // Declencher pompe a messages si elle n'est pas deja active
-    // if let Err(e) = emettre_evenement_pompe(middleware, None).await {
-    //     error!("transaction_poster Erreur declencher pompe de messages : {:?}", e);
-    // }
-    //
-    // let reponse = json!({
-    //     "ok": true,
-    //     "uuid_message": uuid_message
-    // });
-    //
-    // match middleware.formatter_reponse(reponse, None) {
-    //     Ok(r) => Ok(Some(r)),
-    //     Err(e) => Err(format!("transaction_poster Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
-    // }
+    let reponse = json!({
+        "ok": true,
+        "message_id": message_id
+    });
+
+    match middleware.formatter_reponse(reponse, None) {
+        Ok(r) => Ok(Some(r)),
+        Err(e) => Err(format!("transaction_poster Erreur preparation confirmat envoi message {} : {:?}", uuid_transaction, e))
+    }
 
 }
 

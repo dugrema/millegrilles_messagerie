@@ -45,8 +45,8 @@ pub struct AttachmentEnCours {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct DocOutgointProcessing {
-    pub uuid_transaction: String,
-    pub uuid_message: String,
+    pub transaction_id: String,
+    pub message_id: String,
     pub destinataires: Option<Vec<DocDestinataire>>,
     pub user_id: Option<String>,
     pub dns_unresolved: Option<Vec<String>>,
@@ -117,6 +117,16 @@ impl CommandePoster {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocumentOutgoing {
+    pub message: MessageMilleGrille,
+    pub destinataires: HashMap<String, Option<i64>>,
+    pub fuuids: Option<Vec<String>>,
+    pub user_id: String,
+    pub supprime: bool,
+    pub transfert_complete: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocumentMessage {
     pub message_chiffre: String,
     pub attachments: Option<Vec<String>>,
@@ -156,12 +166,12 @@ pub struct DestinataireInfo {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeRecevoirPost {
-    pub message: Map<String, Value>,
+    pub message: MessageMilleGrille,
     pub destinataires: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destinataires_user_id: Option<Vec<DestinataireInfo>>,  // Destinataires resolved (interne)
-    #[serde(rename = "_cle", skip_serializing_if = "Option::is_none")]
-    pub cle: Option<CommandeSauvegarderCle>,         // Cle a sauvegarder
+    // #[serde(rename = "_cle", skip_serializing_if = "Option::is_none")]
+    // pub cle: Option<CommandeSauvegarderCle>,         // Cle a sauvegarder
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

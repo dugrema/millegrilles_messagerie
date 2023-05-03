@@ -171,7 +171,7 @@ async fn traiter_dns_unresolved<M>(middleware: &M, trigger: &MessagePompe)
             }
         };
 
-        let uuid_transaction = message_outgoing.uuid_transaction.as_str();
+        let uuid_transaction = message_outgoing.transaction_id.as_str();
         match message_outgoing.dns_unresolved.as_ref() {
             Some(dns) => {
                 debug!("Nouvelle tentative de resolve pour message uuid_transaction:{}, DNS : {:?}", uuid_transaction, dns);
@@ -201,7 +201,7 @@ async fn traiter_messages_locaux<M>(middleware: &M, trigger: &MessagePompe)
     debug!("Traiter batch messages locaux : {:?}", batch);
     for message in &batch {
         if let Err(e) = pousser_message_local(middleware, message).await {
-            error!("traiter_messages_locaux Erreur traitement pousser_message_local, message {} : {:?}", message.uuid_transaction, e);
+            error!("traiter_messages_locaux Erreur traitement pousser_message_local, message {} : {:?}", message.transaction_id, e);
         }
     }
 }
@@ -280,7 +280,7 @@ async fn traiter_messages_tiers_work<M>(middleware: &M, trigger: &MessagePompe)
         };
         if let Err(e) = pousser_message_vers_tiers(middleware, &message_outgoing).await {
             error!("traiter_batch_messages Erreur traitement pousser_message_vers_tiers message {} : {:?}",
-                message_outgoing.uuid_transaction, e);
+                message_outgoing.transaction_id, e);
         }
     }
 
@@ -326,8 +326,8 @@ async fn traiter_attachments_tiers_work<M>(middleware: &M, trigger: &MessagePomp
             }
         };
 
-        let uuid_transaction = message_outgoing.uuid_transaction;
-        let uuid_message = message_outgoing.uuid_message;
+        let uuid_transaction = message_outgoing.transaction_id;
+        let uuid_message = message_outgoing.message_id;
         let idmg_mapping_unprocessed = match message_outgoing.idmgs_attachments_unprocessed {
             Some(i) => i,
             None => {
@@ -441,21 +441,22 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("pousser_message_local Pousser message : {:?}", message);
-    let uuid_transaction = message.uuid_transaction.as_str();
+    // let uuid_transaction = message.transaction_id.as_str();
+    let message_id = message.message_id.as_str();
 
     // Mapping idmg local
     let idmg_local = middleware.get_enveloppe_signature().idmg()?;
 
     // Incrementer compteur, mettre next push a 15 minutes (en cas d'echec)
-    incrementer_push(middleware, idmg_local.as_str(), uuid_transaction).await?;
+    incrementer_push(middleware, idmg_local.as_str(), message_id).await?;
 
     let mapping: &DocMappingIdmg = if let Some(m) = message.idmgs_mapping.as_ref() {
         match m.get(idmg_local.as_str()) {
             Some(m) => Ok(m),
-            None => Err(format!("pousser_message_local Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
+            None => Err(format!("pousser_message_local Aucun mapping trouve dans message_id {} pour idmg local {}", message_id, idmg_local))
         }
     } else {
-        Err(format!("pompe_messages.pousser_message_local Aucun mapping trouve dans message {} pour idmg local {}", uuid_transaction, idmg_local))
+        Err(format!("pompe_messages.pousser_message_local Aucun mapping trouve dans message_id {} pour idmg local {}", message_id, idmg_local))
     }?;
 
     // Extraire la liste des destinataires pour le IDMG a traiter (par mapping adresses)
@@ -465,10 +466,17 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
     };
 
     // Charger transaction message mappee via serde
-    let (message_a_transmettre, _) = charger_message(middleware, uuid_transaction).await?;
+    // let (message_a_transmettre, _) = charger_message(middleware, message_id).await?;
+    let commande_poster = charger_message(middleware, message_id).await?;
 
     // Emettre commande recevoir
-    let commande = CommandeRecevoirPost{ message: message_a_transmettre, destinataires: destinataires.clone(), destinataires_user_id: None, cle: None};
+    let commande = CommandeRecevoirPost{
+        message: commande_poster.message,
+        destinataires: destinataires.clone(),
+        destinataires_user_id: None,
+        // cle: None
+    };
+
     let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_RECEVOIR)
         .exchanges(vec![Securite::L2Prive])
         .build();
@@ -478,9 +486,9 @@ async fn pousser_message_local<M>(middleware: &M, message: &DocOutgointProcessin
             TypeMessage::Valide(m) => {
                 m.message.parsed.map_contenu()?
             },
-            _ => Err(format!("pompe_messages.pousser_message_local Erreur traitement recevoir message {} pour idmg local {} - mauvais type reponse traitemnet de transaction", uuid_transaction, idmg_local))?
+            _ => Err(format!("pompe_messages.pousser_message_local Erreur traitement recevoir message_id {} pour idmg local {} - mauvais type reponse traitemnet de transaction", message_id, idmg_local))?
         },
-        None => Err(format!("pompe_messages.pousser_message_local Erreur traitement recevoir message {} pour idmg local {} - aucune reponse de traitement de transaction", uuid_transaction, idmg_local))?
+        None => Err(format!("pompe_messages.pousser_message_local Erreur traitement recevoir message_id {} pour idmg local {} - aucune reponse de traitement de transaction", message_id, idmg_local))?
     };
     debug!("pousser_message_local Reponse commande message local : {:?}", reponse);
 
@@ -507,60 +515,62 @@ fn mapper_destinataires(message: &DocOutgointProcessing, mapping: &DocMappingIdm
         }
     }
 
-    debug!("Mapping destinataires pour message {} : {:?}", message.uuid_transaction, destinataires);
+    debug!("Mapping destinataires pour message {} : {:?}", message.transaction_id, destinataires);
     destinataires
 }
 
-async fn charger_message<M>(middleware: &M, uuid_transaction: &str) -> Result<(Map<String, Value>, CommandePoster), String>
+async fn charger_message<M>(middleware: &M, message_id: &str) -> Result<DocumentOutgoing, String>
     where M: MongoDao + ValidateurX509
 {
-    let collection_transactions = middleware.get_collection(NOM_COLLECTION_TRANSACTIONS)?;
-    let filtre_transaction = doc! { "en-tete.uuid_transaction": uuid_transaction };
+    let collection_transactions = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+    let filtre_transaction = doc! { "message.id": message_id };
     let doc_message = match collection_transactions.find_one(filtre_transaction, None).await {
         Ok(d) => match d {
             Some(d) => Ok(d),
-            None => Err(format!("pompe_messages.charger_message Transaction pour message {} introuvable", uuid_transaction))
+            None => Err(format!("pompe_messages.charger_message Transaction pour message.id {} introuvable", message_id))
         },
         Err(e) => Err(format!("pompe_messages.charger_message Erreur chargement transaction message : {:?}", e))
     }?;
 
     // Preparer message a transmettre. Enlever elements
     debug!("Message a transmettre : {:?}", doc_message);
-    let message_mappe: CommandePoster = match convertir_bson_deserializable(doc_message.clone()) {
+    let message_mappe: DocumentOutgoing = match convertir_bson_deserializable(doc_message) {
         Ok(m) => Ok(m),
         Err(e) => Err(format!("pompe_message.charger_message Erreur mapping message -> CommandePoster : {:?}", e))
     }?;
 
-    let commande: CommandeRecevoirPost = match convertir_bson_deserializable(doc_message) {
-        Ok(c) => Ok(c),
-        Err(e) => Err(format!("pompe_messages.charger_message Erreur chargement transaction message : {:?}", e))
-    }?;
+    Ok(message_mappe)
 
-    let fingerprint = message_mappe.message.pubkey.as_str();
-    let pems = match middleware.get_certificat(fingerprint).await {
-        Some(c) => {
-            let pems: Vec<String> = c.get_pem_vec().into_iter().map(|c| c.pem).collect();
-            Some(pems)
-        },
-        None => None
-    };
-
-    let mut val_message = commande.message;
-    let mut keys_to_remove = Vec::new();
-    for key in val_message.keys() {
-        if key.starts_with("_") && key != "_signature" && key != "_bcc" {
-            keys_to_remove.push(key.to_owned());
-        }
-    }
-    for key in keys_to_remove {
-        val_message.remove(key.as_str());
-    }
-    if let Some(p) = pems {
-        val_message.insert("_certificat".into(), Value::from(p));
-    }
-
-    debug!("Message mappe : {:?}", val_message);
-    Ok((val_message, message_mappe))
+    // let commande: CommandeRecevoirPost = match convertir_bson_deserializable(doc_message) {
+    //     Ok(c) => Ok(c),
+    //     Err(e) => Err(format!("pompe_messages.charger_message Erreur chargement transaction message : {:?}", e))
+    // }?;
+    //
+    // let fingerprint = message_mappe.message.pubkey.as_str();
+    // let pems = match middleware.get_certificat(fingerprint).await {
+    //     Some(c) => {
+    //         let pems: Vec<String> = c.get_pem_vec().into_iter().map(|c| c.pem).collect();
+    //         Some(pems)
+    //     },
+    //     None => None
+    // };
+    //
+    // let mut val_message = commande.message;
+    // let mut keys_to_remove = Vec::new();
+    // for key in val_message.keys() {
+    //     if key.starts_with("_") && key != "_signature" && key != "_bcc" {
+    //         keys_to_remove.push(key.to_owned());
+    //     }
+    // }
+    // for key in keys_to_remove {
+    //     val_message.remove(key.as_str());
+    // }
+    // if let Some(p) = pems {
+    //     val_message.insert("_certificat".into(), Value::from(p));
+    // }
+    //
+    // debug!("Message mappe : {:?}", val_message);
+    // Ok((val_message, message_mappe))
 }
 
 pub async fn marquer_outgoing_resultat<M>(
@@ -746,24 +756,31 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     where M: ValidateurX509 + GenerateurMessages + MongoDao
 {
     debug!("Pousser message : {:?}", message);
-    let uuid_transaction = message.uuid_transaction.as_str();
-    let uuid_message = message.uuid_message.as_str();
+    let uuid_transaction = message.transaction_id.as_str();
+    let uuid_message = message.message_id.as_str();
 
     let idmg_local = middleware.idmg();
 
     // Charger transaction message mappee via serde
-    let (message_a_transmettre, message_mappe) = charger_message(middleware, uuid_transaction).await?;
-
-    // Charger certificat utilise dans le message
-    let certificat_message: Vec<String> = {
-        let fingerprint = message_mappe.message.pubkey.as_str();
-        match middleware.get_certificat(fingerprint).await {
-            Some(c) => Ok(c.get_pem_vec().iter().map(|p| p.pem.clone()).collect()),
-            None => Err(format!("pompe_messages.pousser_message_vers_tiers Certificat {} manquant pour message {}", fingerprint, uuid_message))
-        }
-    }?;
+    // let (message_a_transmettre, message_mappe) = charger_message(middleware, uuid_transaction).await?;
+    let commande_poster = charger_message(middleware, uuid_transaction).await?;
 
     todo!("fix me");
+    // // Charger certificat utilise dans le message
+    // let certificat_message: Vec<String> = {
+    //     let fingerprint = message_mappe.message.pubkey.as_str();
+    //     match middleware.get_certificat(fingerprint).await {
+    //         Some(c) => Ok(c.get_pem_vec_extracted()),
+    //         None => Err(format!("pompe_messages.pousser_message_vers_tiers Certificat {} manquant pour message {}", fingerprint, uuid_message))
+    //     }
+    // }?;
+    //
+    // let certificat_millegrille = {
+    //     let enveloppe_privee = middleware.get_enveloppe_signature();
+    //     let enveloppe_ca = enveloppe_privee.enveloppe_ca.as_ref();
+    //     enveloppe_ca.get_pem_vec_extracted().pop().expect("CA pop")
+    // };
+    //
     // // Recuperer cle du message
     // let hachage_bytes = vec![message_mappe.message.get_ref_cle()?.to_owned()];
     // let cle_message = requete_charger_cles(middleware, &hachage_bytes).await?;
@@ -920,7 +937,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     // Ok(())
 }
 
-async fn incrementer_push<M>(middleware: &M, idmg: &str, uuid_transaction: &str) -> Result<(), Box<dyn Error>>
+async fn incrementer_push<M>(middleware: &M, idmg: &str, message_id: &str) -> Result<(), Box<dyn Error>>
     where M: GenerateurMessages + MongoDao
 {
     let next_push = (Utc::now() + Duration::minutes(15)).timestamp();
@@ -933,7 +950,7 @@ async fn incrementer_push<M>(middleware: &M, idmg: &str, uuid_transaction: &str)
         },
         "$currentDate": {"last_processed": true}
     };
-    let filtre = doc!{ "uuid_transaction": uuid_transaction };
+    let filtre = doc!{ "message_id": message_id };
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     collection.update_one(filtre, ops, None).await?;
 
@@ -1094,17 +1111,17 @@ pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing
                 }
             } else {
                 warn!("verifier_fin_transferts_attachments idmgs_mapping pour {} n'existe pas dans {}, on le retire implicitement",
-                    idmg, doc_outgoing.uuid_message);
+                    idmg, doc_outgoing.message_id);
                 idmgs_completes.push(idmg.into());
             }
         } else {
             warn!("verifier_fin_transferts_attachments idmgs_mapping n'existe pas dans {}, on le retire implicitement",
-                doc_outgoing.uuid_message);
+                doc_outgoing.message_id);
             idmgs_completes.push(idmg.into());
         }
     }
 
-    let filtre = doc! { CHAMP_UUID_MESSAGE: &doc_outgoing.uuid_message };
+    let filtre = doc! { CHAMP_UUID_MESSAGE: &doc_outgoing.message_id };
     let options = FindOneAndUpdateOptions::builder()
         .return_document(ReturnDocument::After)
         .build();
@@ -1126,7 +1143,7 @@ pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing
                 .exchanges(vec![Securite::L4Secure])
                 .build();
             let t = TransactionTransfertComplete {
-                uuid_message: doc_outgoing.uuid_message,
+                uuid_message: doc_outgoing.message_id,
                 message_complete: Some(true),
                 attachments_completes: Some(true)
             };
@@ -1153,9 +1170,9 @@ async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Err
         while let Some(d) = curseur.next().await {
             let doc = d?;
             let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
-            let uuid_message = doc_outgoing.uuid_message.clone();
+            let uuid_message = doc_outgoing.message_id.clone();
             let transaction = TransactionTransfertComplete {
-                uuid_message: doc_outgoing.uuid_message,
+                uuid_message: doc_outgoing.message_id,
                 message_complete: Some(true),
                 attachments_completes: None
             };
@@ -1173,14 +1190,14 @@ async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Err
         while let Some(d) = curseur.next().await {
             let doc = d?;
             let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
-            let uuid_message = doc_outgoing.uuid_message.clone();
+            let uuid_message = doc_outgoing.message_id.clone();
             match messages_completes.get_mut(uuid_message.as_str()) {
                 Some(t) => {
                     t.attachments_completes = Some(true);
                 },
                 None => {
                     let t = TransactionTransfertComplete {
-                        uuid_message: doc_outgoing.uuid_message,
+                        uuid_message: doc_outgoing.message_id,
                         message_complete: None,
                         attachments_completes: Some(true)
                     };
