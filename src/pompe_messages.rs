@@ -718,13 +718,18 @@ pub async fn marquer_outgoing_resultat<M>(
         if message_complete {
             // Creer transaction message complete
             debug!("marquer_outgoing_resultat Traitement message {} complete pour toutes les millegrilles", uuid_message);
+
+            // Mapper destinataires
+            let map_destinataires = map_destinataires_outgoing(&doc_mappe);
+
             let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_TRANSFERT_COMPLETE)
                 .exchanges(vec![Securite::L4Secure])
                 .build();
             let t = TransactionTransfertComplete {
                 message_id: uuid_message.into(),
                 message_complete: Some(true),
-                attachments_completes: Some(true)
+                attachments_completes: Some(true),
+                destinataires: map_destinataires,
             };
             middleware.soumettre_transaction(routage.clone(), &t, false).await?;
         }
@@ -1138,19 +1143,40 @@ pub async fn verifier_fin_transferts_attachments<M>(middleware: &M, doc_outgoing
     if let Some(d) = collection.find_one_and_update(filtre, ops, options).await? {
         let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(d)?;
         if verifier_message_complete(middleware, &doc_outgoing) {
+            let map_destinataires = map_destinataires_outgoing(&doc_outgoing);
             let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_TRANSFERT_COMPLETE)
                 .exchanges(vec![Securite::L4Secure])
                 .build();
             let t = TransactionTransfertComplete {
                 message_id: doc_outgoing.message_id,
                 message_complete: Some(true),
-                attachments_completes: Some(true)
+                attachments_completes: Some(true),
+                destinataires: map_destinataires,
             };
             middleware.soumettre_transaction(routage.clone(), &t, false).await?;
         }
     }
 
     Ok(())
+}
+
+fn map_destinataires_outgoing(doc_outgoing: &DocOutgointProcessing) -> Option<HashMap<String, i32>> {
+    // Mapper destinataires
+    let mut map_destinataires = match &doc_outgoing.destinataires {
+        Some(inner) => {
+            let mut map_destinataires = HashMap::new();
+            for destinataire in inner {
+                let result = match destinataire.result {
+                    Some(inner) => inner,
+                    None => 404
+                };
+                map_destinataires.insert(destinataire.destinataire.clone(), result);
+            }
+            Some(map_destinataires)
+        },
+        None => None
+    };
+    map_destinataires
 }
 
 async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Error>>
@@ -1170,10 +1196,12 @@ async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Err
             let doc = d?;
             let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
             let uuid_message = doc_outgoing.message_id.clone();
+            let map_destinataires = map_destinataires_outgoing(&doc_outgoing);
             let transaction = TransactionTransfertComplete {
                 message_id: doc_outgoing.message_id,
                 message_complete: Some(true),
-                attachments_completes: None
+                attachments_completes: None,
+                destinataires: map_destinataires,
             };
             messages_completes.insert(uuid_message, transaction);
             // middleware.soumettre_transaction(routage.clone(), &transaction, false).await?;
@@ -1190,6 +1218,7 @@ async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Err
             let doc = d?;
             let doc_outgoing: DocOutgointProcessing = convertir_bson_deserializable(doc)?;
             let uuid_message = doc_outgoing.message_id.clone();
+            let map_destinataires = map_destinataires_outgoing(&doc_outgoing);
             match messages_completes.get_mut(uuid_message.as_str()) {
                 Some(t) => {
                     t.attachments_completes = Some(true);
@@ -1198,7 +1227,8 @@ async fn marquer_messages_completes<M>(middleware: &M) -> Result<(), Box<dyn Err
                     let t = TransactionTransfertComplete {
                         message_id: doc_outgoing.message_id,
                         message_complete: None,
-                        attachments_completes: Some(true)
+                        attachments_completes: Some(true),
+                        destinataires: map_destinataires,
                     };
                     messages_completes.insert(uuid_message, t);
                 }

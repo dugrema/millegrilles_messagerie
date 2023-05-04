@@ -898,6 +898,29 @@ async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middlew
         Err(e) => Err(format!("transactions.transfert_complete Erreur update pour transfert complete {} : {:?}", uuid_message, e))?
     };
 
+    // Mettre usagers completes dans outgoing
+    if let Some(destinataires) = &outgoing_processing.destinataires {
+        debug!("transactions.transfert_complete Marquer destinataires pour message {} : {:?}", uuid_message, destinataires);
+        let mut set_ops = doc!{};
+        for destinataire in destinataires {
+            if let Some(result) = destinataire.result {
+                let destinataire_key = destinataire.destinataire.replace(".", ",");  // Mapping key dans table mongo
+                set_ops.insert(format!("destinataires.{}", destinataire_key), result);
+            }
+        }
+        if set_ops.len() > 0 {
+            let filtre = doc! {"message.id": uuid_message};
+            let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+            let ops = doc! {
+                "$set": set_ops,
+                "$currentDate": {CHAMP_MODIFICATION: true}
+            };
+            if let Err(e) = collection.update_one(filtre, ops, None).await {
+                error!("transactions.transfert_complete Erreur update destinataires : {}", uuid_message);
+            }
+        }
+    }
+
     let message_complete = verifier_message_complete(middleware, &outgoing_processing);
     if message_complete {
         debug!("transfert_complete Conserve flag message complete dans outgoing");

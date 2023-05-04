@@ -456,6 +456,7 @@ pub struct TransactionTransfertComplete {
     pub message_id: String,
     pub message_complete: Option<bool>,
     pub attachments_completes: Option<bool>,
+    pub destinataires: Option<HashMap<String, i32>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
