@@ -320,13 +320,20 @@ pub struct DocumentIncoming {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageIncomingReferenceSub {
+    pub id: String,
+    pub estampille: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingReference {
-    pub message_id: String,
+    // pub message_id: String,
+    pub message: MessageIncomingReferenceSub,
     pub lu: Option<bool>,
     pub supprime: bool,
     pub date_reception: Option<DateEpochSeconds>,
     pub date_envoi: Option<DateEpochSeconds>,
-    pub attachments_traites: Option<bool>,
+    pub fichiers_completes: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

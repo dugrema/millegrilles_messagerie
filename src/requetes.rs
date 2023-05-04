@@ -124,7 +124,7 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
     // }
 
     if let Some(um) = requete.message_ids {
-        filtre.insert("uuid_messages", doc!{"$in": um});
+        filtre.insert("message.id", doc!{"$in": um});
     }
 
     debug!("requete_get_messages Filtre {:?}", filtre);
@@ -245,7 +245,7 @@ async fn mapper_messages_curseur(mut curseur: Cursor<Document>, type_envoi: bool
             let mut messages_mappes = Vec::new();
             while let Some(fresult) = curseur.next().await {
                 let fcurseur = fresult?;
-                let message_db: MessageOutgoing = convertir_bson_deserializable(fcurseur)?;
+                let message_db: DocumentOutgoing = convertir_bson_deserializable(fcurseur)?;
                 messages_mappes.push(message_db);
             }
             // Convertir fichiers en Value (serde pour reponse json)
@@ -255,7 +255,7 @@ async fn mapper_messages_curseur(mut curseur: Cursor<Document>, type_envoi: bool
             let mut messages_mappes = Vec::new();
             while let Some(fresult) = curseur.next().await {
                 let fcurseur = fresult?;
-                let message_db: MessageIncoming = convertir_bson_deserializable(fcurseur)?;
+                let message_db: DocumentIncoming = convertir_bson_deserializable(fcurseur)?;
                 messages_mappes.push(message_db);
             }
             // Convertir fichiers en Value (serde pour reponse json)
@@ -322,14 +322,16 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
 
     let mut filtre = doc!{
         "user_id": &user_id,
-        "uuid_transaction": {"$in": &requete.message_ids},
+        "message.id": {"$in": &requete.message_ids},
     };
     let mut projection = doc! {
-        "uuid_transaction": true,
-        "hachage_bytes": true,
-        "ref_hachage_bytes": true,
+        "message.id": true,
+        "message.dechiffrage.hachage": true,
     };
-    let opts = FindOptions::builder().projection(projection).limit(1000).build();
+    let opts = FindOptions::builder()
+        // .projection(projection)
+        .limit(1000)
+        .build();
     let collection = middleware.get_collection(nom_collection)?;
     let mut curseur = collection.find(filtre, Some(opts)).await?;
 
@@ -349,10 +351,26 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
 
             },
             false => {
-                let doc_message_incoming: MessageIncomingProjectionPermission = convertir_bson_deserializable(doc_result)?;
-                hachage_bytes.insert(doc_message_incoming.get_ref_cle()?.to_string());
+                let doc_message_incoming: DocumentIncoming = convertir_bson_deserializable(doc_result)?;
+                match doc_message_incoming.message.dechiffrage {
+                    Some(inner) => {
+                        match inner.get("hachage") {
+                            Some(inner) => {
+                                hachage_bytes.insert(inner.to_owned());
+                            },
+                            None => {
+                                debug!("Pas d'information dechiffrage.hachage, skip");
+                                continue;
+                            }
+                        }
+                    },
+                    None => {
+                        debug!("Pas d'information de dechiffrage, skip");
+                        continue;
+                    }
+                }
 
-                if let Some(attachments) = &doc_message_incoming.attachments {
+                if let Some(attachments) = &doc_message_incoming.fichiers {
                     for (h, _) in attachments {
                         hachage_bytes.insert(h.to_owned());
                     }
