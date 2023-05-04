@@ -79,7 +79,7 @@ pub async fn consommer_requete<M>(middleware: &M, message: MessageValideAction, 
 
 async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + VerificateurMessage,
+    where M: GenerateurMessages + MongoDao + VerificateurMessage + ValidateurX509
 {
     debug!("requete_get_messages Message : {:?}", & m.message);
     let requete: RequeteGetMessages = m.message.get_msg().map_contenu()?;
@@ -102,7 +102,7 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
     let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
 
     let champ_date = match messages_envoyes {
-        true => CHAMP_DATE_ENVOI,
+        true => "message.estampille",
         false => CHAMP_DATE_RECEPTION
     };
 
@@ -131,7 +131,7 @@ async fn requete_get_messages<M>(middleware: &M, m: MessageValideAction, gestion
 
     let collection = middleware.get_collection(nom_collection)?;
     let mut curseur = collection.find(filtre, opts).await?;
-    let fichiers_mappes = mapper_messages_curseur(curseur, messages_envoyes).await?;
+    let fichiers_mappes = mapper_messages_curseur(middleware, curseur, messages_envoyes).await?;
 
     let reponse = json!({ "messages": fichiers_mappes });
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
@@ -205,7 +205,7 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
     let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
 
     let champ_date = match messages_envoyes {
-        true => CHAMP_DATE_ENVOI,
+        true => "message.estampille",
         false => CHAMP_DATE_RECEPTION
     };
 
@@ -238,7 +238,9 @@ async fn requete_get_reference_messages<M>(middleware: &M, m: MessageValideActio
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
 }
 
-async fn mapper_messages_curseur(mut curseur: Cursor<Document>, type_envoi: bool) -> Result<Value, Box<dyn Error>> {
+async fn mapper_messages_curseur<M>(middleware: &M, mut curseur: Cursor<Document>, type_envoi: bool) -> Result<Value, Box<dyn Error>>
+    where M: ValidateurX509
+{
 
     let messages_value = match type_envoi {
         true => {
@@ -255,9 +257,18 @@ async fn mapper_messages_curseur(mut curseur: Cursor<Document>, type_envoi: bool
             let mut messages_mappes = Vec::new();
             while let Some(fresult) = curseur.next().await {
                 let fcurseur = fresult?;
-                let message_db: DocumentIncoming = convertir_bson_deserializable(fcurseur)?;
-                messages_mappes.push(message_db);
+                let mut message_db: MessageIncomingClient = convertir_bson_deserializable(fcurseur)?;
+                match middleware.get_certificat(message_db.message.pubkey.as_str()).await {
+                    Some(inner) => {
+                        message_db.certificat = Some(inner.get_pem_vec_extracted());
+                        messages_mappes.push(message_db);
+                    },
+                    None => {
+                        debug!("mapper_messages_curseur Certificat absent pour message {}", message_db.message.id);
+                    }
+                }
             }
+
             // Convertir fichiers en Value (serde pour reponse json)
             serde_json::to_value(messages_mappes)
         }

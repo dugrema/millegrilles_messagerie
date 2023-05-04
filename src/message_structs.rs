@@ -320,6 +320,39 @@ pub struct DocumentIncoming {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageIncomingClient {
+    pub message: MessageMilleGrille,
+    pub user_id: String,
+    pub supprime: bool,
+    pub lu: bool,
+    pub date_reception: DateEpochSeconds,
+    pub date_ouverture: Option<DateEpochSeconds>,
+    pub fichiers: Option<HashMap<String, bool>>,
+    pub fichiers_completes: bool,
+    #[serde(rename="certificat_message")]
+    pub certificat: Option<Vec<String>>,
+    #[serde(rename="millegrille_message")]
+    pub millegrille: Option<String>,
+}
+
+impl From<DocumentIncoming> for MessageIncomingClient {
+    fn from(value: DocumentIncoming) -> Self {
+        Self {
+            message: value.message,
+            user_id: value.user_id,
+            supprime: value.supprime,
+            lu: value.lu,
+            date_reception: value.date_reception,
+            date_ouverture: value.date_ouverture,
+            fichiers: value.fichiers,
+            fichiers_completes: value.fichiers_completes,
+            certificat: None,
+            millegrille: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingReferenceSub {
     pub id: String,
     pub estampille: i64,

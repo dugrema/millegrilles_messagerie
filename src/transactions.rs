@@ -538,7 +538,18 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     .exchanges(vec![L2Prive])
                     .partition(u)
                     .build();
-                middleware.emettre_evenement(routage, &message_recevoir_serialise.parsed).await?;
+
+                match middleware.get_certificat(message_recevoir_serialise.parsed.pubkey.as_str()).await {
+                    Some(inner) => {
+                        let mut evenement = MessageIncomingClient::from(message_document);
+                        evenement.certificat = Some(inner.get_pem_vec_extracted());
+                        middleware.emettre_evenement(routage, &evenement).await?;
+                    },
+                    None => {
+                        error!("transasctions.transaction_recevoir Erreur get_certificat {} du message {} pour emettre_evenement",
+                            message_recevoir_serialise.parsed.pubkey, message_recevoir_serialise.parsed.id);
+                    }
+                }
             },
             None => {
                 if let Some(adresse_usager) = d.adresse.as_ref() {
