@@ -706,7 +706,7 @@ async fn requete_get_cles_stream<M>(middleware: &M, m: MessageValideAction, gest
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
     for fuuid in requete.fuuids {
         let filtre = doc! {
-            format!("attachments.{}", &fuuid): true,
+            format!("fichiers.{}", &fuuid): true,
             "user_id": &user_id,
         };
         debug!("requete_get_cles_stream Filtre : {:?}", filtre);
