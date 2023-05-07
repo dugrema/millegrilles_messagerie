@@ -817,45 +817,44 @@ async fn transaction_lu<M, T>(gestionnaire: &GestionnaireMessagerie, middleware:
     };
 
     let flag_lu = transaction_lu.lu;
-    let uuid_message = transaction_lu.message_id;
+    let message_id = transaction_lu.message_id;
     let date_lu = match flag_lu {
         true => Some(transaction.get_estampille()),
         false => None
     };
 
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    todo!("fix me");
-    // let filtre = doc! {CHAMP_USER_ID: user_id, TRANSACTION_CHAMP_UUID_TRANSACTION: &uuid_message};
-    // let ops = doc! {
-    //     "$set": {"lu": flag_lu, "lu_date": date_lu},
-    //     "$currentDate": {CHAMP_MODIFICATION: true},
-    // };
-    //
-    // match collection.update_one(filtre, ops, None).await {
-    //     Ok(r) => {
-    //         if r.matched_count != 1 {
-    //             let reponse = match middleware.formatter_reponse(json!({"ok": false, "code": 500, "err": "Erreur maj flag lu"}), None) {
-    //                 Ok(r) => return Ok(Some(r)),
-    //                 Err(e) => Err(format!("transactions.transaction_maj_contact Erreur preparation reponse. Erreur de mise a jour flag lu."))?
-    //             };
-    //         }
-    //     },
-    //     Err(e) => Err(format!("transactions.transaction_maj_contact Erreur conversion transaction en bson : {:?}", e))?
-    // };
-    //
-    // // Emettre evenement lu
-    // {
-    //     let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MESSAGE_LU)
-    //         .exchanges(vec![L2Prive])
-    //         .partition(user_id)
-    //         .build();
-    //     let evenement_lu = json!({
-    //         "lus": {&uuid_message: flag_lu},
-    //     });
-    //     middleware.emettre_evenement(routage, &evenement_lu).await?;
-    // }
-    //
-    // middleware.reponse_ok()
+    let filtre = doc! {CHAMP_USER_ID: user_id, "message.id": &message_id};
+    let ops = doc! {
+        "$set": {"lu": flag_lu, "lu_date": date_lu},
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    match collection.update_one(filtre, ops, None).await {
+        Ok(r) => {
+            if r.matched_count != 1 {
+                let reponse = match middleware.formatter_reponse(json!({"ok": false, "code": 500, "err": "Erreur maj flag lu"}), None) {
+                    Ok(r) => return Ok(Some(r)),
+                    Err(e) => Err(format!("transactions.transaction_maj_contact Erreur preparation reponse. Erreur de mise a jour flag lu."))?
+                };
+            }
+        },
+        Err(e) => Err(format!("transactions.transaction_maj_contact Erreur conversion transaction en bson : {:?}", e))?
+    };
+
+    // Emettre evenement lu
+    {
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MESSAGE_LU)
+            .exchanges(vec![L2Prive])
+            .partition(user_id)
+            .build();
+        let evenement_lu = json!({
+            "lus": {&message_id: flag_lu},
+        });
+        middleware.emettre_evenement(routage, &evenement_lu).await?;
+    }
+
+    middleware.reponse_ok()
 }
 
 async fn transfert_complete<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
@@ -970,13 +969,13 @@ async fn supprimer_message<M, T>(gestionnaire: &GestionnaireMessagerie, middlewa
 {
     debug!("supprimer_message Consommer transaction : {:?}", &transaction);
 
-    let uuid_transaction = transaction.get_uuid_transaction().to_owned();
+    let message_id = transaction.get_uuid_transaction().to_owned();
     let user_id = match transaction.get_enveloppe_certificat() {
         Some(e) => match e.get_user_id()?.to_owned() {
             Some(u) => u,
-            None => Err(format!("transactions.supprimer_message Certificat sans user_id, transaction {} invalide", uuid_transaction))?
+            None => Err(format!("transactions.supprimer_message Certificat sans user_id, transaction {} invalide", message_id))?
         },
-        None => Err(format!("transactions.supprimer_message Message sans certificat, transaction {} invalide", uuid_transaction))?
+        None => Err(format!("transactions.supprimer_message Message sans certificat, transaction {} invalide", message_id))?
     };
 
     let transaction_mappee = match transaction.convertir::<TransactionSupprimerMessage>() {
@@ -984,32 +983,32 @@ async fn supprimer_message<M, T>(gestionnaire: &GestionnaireMessagerie, middlewa
         Err(e) => Err(format!("transactions.supprimer_message Erreur conversion transaction : {:?}", e))?
     };
 
-    let uuid_transactions = transaction_mappee.message_ids;
-    todo!("fix me");
-    // let filtre = doc! {CHAMP_USER_ID: &user_id, TRANSACTION_CHAMP_UUID_TRANSACTION: {"$in": &uuid_transactions}};
-    // let ops = doc! {
-    //     "$set": { CHAMP_SUPPRIME: true },
-    //     "$currentDate": {CHAMP_MODIFICATION: true},
-    // };
-    //
-    // debug!("supprimer_message filtre : {:?}, ops: {:?}", filtre, ops);
-    //
-    // let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    // match collection.update_many(filtre, ops, None).await {
-    //     Ok(r) => debug!("supprimer_message Resultat : {:?}", r),
-    //     Err(e) => Err(format!("transactions.supprimer_message Erreur update pour transfert complete {} : {:?}", uuid_transaction, e))?
-    // }
-    //
-    // let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MESSAGES_SUPPRIMES)
-    //     .exchanges(vec![L2Prive])
-    //     .partition(&user_id)
-    //     .build();
-    // let evenement_supprime = json!({
-    //     "uuid_transactions": &uuid_transactions,
-    // });
-    // middleware.emettre_evenement(routage, &evenement_supprime).await?;
-    //
-    // middleware.reponse_ok()
+    let message_ids = transaction_mappee.message_ids;
+
+    let filtre = doc! {CHAMP_USER_ID: &user_id, "message.id": {"$in": &message_ids}};
+    let ops = doc! {
+        "$set": { CHAMP_SUPPRIME: true },
+        "$currentDate": { CHAMP_MODIFICATION: true },
+    };
+
+    debug!("supprimer_message filtre : {:?}, ops: {:?}", filtre, ops);
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    match collection.update_many(filtre, ops, None).await {
+        Ok(r) => debug!("supprimer_message Resultat : {:?}", r),
+        Err(e) => Err(format!("transactions.supprimer_message Erreur update pour transfert complete {} : {:?}", message_id, e))?
+    }
+
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_MESSAGES_SUPPRIMES)
+        .exchanges(vec![L2Prive])
+        .partition(&user_id)
+        .build();
+    let evenement_supprime = json!({
+        "message_ids": &message_ids,
+    });
+    middleware.emettre_evenement(routage, &evenement_supprime).await?;
+
+    middleware.reponse_ok()
 }
 
 async fn supprimer_contacts<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>
