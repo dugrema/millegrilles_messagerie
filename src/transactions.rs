@@ -645,27 +645,26 @@ async fn ajouter_notification_usager<M>(middleware: &M, user_id: &str, uuid_mess
         CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: Utc::now(),
     };
 
-    todo!("fix me");
-    // let push_ops = doc! {
-    //     CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: uuid_transaction,
-    // };
-    //
-    // let ops = doc! {
-    //     "$setOnInsert": set_on_insert_ops,
-    //     "$push": push_ops,
-    //     "$set": {
-    //         CHAMP_NOTIFICATIONS_PENDING: true,
-    //     },
-    //     "$currentDate": {
-    //         CHAMP_MODIFICATION: true,
-    //         CHAMP_DERNIERE_NOTIFICATION: true,
-    //     }
-    // };
-    //
-    // let options = UpdateOptions::builder().upsert(true).build();
-    // collection.update_one(filtre, ops, Some(options)).await?;
-    //
-    // Ok(())
+    let push_ops = doc! {
+        CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: uuid_message,
+    };
+
+    let ops = doc! {
+        "$setOnInsert": set_on_insert_ops,
+        "$push": push_ops,
+        "$set": {
+            CHAMP_NOTIFICATIONS_PENDING: true,
+        },
+        "$currentDate": {
+            CHAMP_MODIFICATION: true,
+            CHAMP_DERNIERE_NOTIFICATION: true,
+        }
+    };
+
+    let options = UpdateOptions::builder().upsert(true).build();
+    collection.update_one(filtre, ops, Some(options)).await?;
+
+    Ok(())
 }
 
 async fn transaction_initialiser_profil<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T) -> Result<Option<MessageMilleGrille>, String>

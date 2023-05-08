@@ -15,7 +15,7 @@ use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
 use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, MessageReponse, TransactionRetirerSubscriptionWebpush};
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
-use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
+use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction, sauvegarde_attachement_cle};
 use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao, verifier_erreur_duplication_mongo};
 use millegrilles_common_rust::mongodb::Collection;
@@ -636,7 +636,7 @@ async fn commande_supprimer_contacts<M>(middleware: &M, m: MessageValideAction, 
 
 async fn commande_conserver_configuration_notifications<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     debug!("commandes.commande_conserver_configuration_notifications Consommer commande : {:?}", & m.message);
     let mut commande: TransactionConserverConfigurationNotifications = m.message.get_msg().map_contenu()?;
@@ -649,34 +649,46 @@ async fn commande_conserver_configuration_notifications<M>(middleware: &M, mut m
         Err(format!("commandes.commande_supprimer_contacts: Commande autorisation invalide pour message {:?}", m.correlation_id))?
     }
 
-    todo!("fix me");
-    // match commande.cles {
-    //     Some(cles) => {
-    //
-    //         if let Some(smtp) = cles.smtp {
-    //             // Conserver cle smtp
-    //             let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-    //                 .exchanges(vec![Securite::L4Secure])
-    //                 .build();
-    //             middleware.transmettre_commande(routage, &smtp, true).await?;
-    //         }
-    //
-    //         if let Some(webpush) = cles.webpush {
-    //             let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-    //                 .exchanges(vec![Securite::L4Secure])
-    //                 .build();
-    //             middleware.transmettre_commande(routage, &webpush, true).await?;
-    //         }
-    //
-    //         // Retirer les cles
-    //         m.message.parsed.contenu.remove("_cles");
-    //
-    //         Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-    //     },
-    //     None => Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-    // }
+    if let Some(mut attachements) = m.message.parsed.attachements.take() {
+        if let Some(smtp) = attachements.remove("smtp") {
+            sauvegarde_attachement_cle(middleware, smtp).await?
+        }
+    }
 
+    Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
 }
+
+// async fn sauvegarde_attachement_cle<M>(middleware: &M, smtp: Value) -> Result<(), Box<dyn Error>>
+//     where M: GenerateurMessages
+// {
+//     match serde_json::from_value::<CommandeSauvegarderCle>(smtp) {
+//         Ok(cle) => {
+//             debug!("commande_conserver_configuration_notifications Sauvegarder cle SMTP : {:?}", cle);
+//             if let Some(p) = cle.partition.as_ref() {
+//                 let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+//                     .exchanges(vec![Securite::L3Protege])
+//                     .partition(p.to_owned())
+//                     .build();
+//                 match middleware.transmettre_commande(routage, &cle, true).await? {
+//                     Some(TypeMessage::Valide(m)) => {
+//                         let reponse: MessageReponse = m.message.parsed.map_contenu()?;
+//                         if let Some(true) = reponse.ok {
+//                             // Ok
+//                         } else {
+//                             Err(format!("commande_conserver_configuration_notifications Sauvegarder cle SMTP : Reponse ok != true"))?
+//                         }
+//                     },
+//                     _ => Err(format!("commande_conserver_configuration_notifications Sauvegarder cle SMTP : Mauvais type reponse"))?
+//                 }
+//             } else {
+//                 Err(format!("commandes.commande_conserver_configuration_notifications Erreur sauvegarde cle - partition n'est pas fournie"))?
+//             }
+//         },
+//         Err(e) => Err(format!("commandes.commande_conserver_configuration_notifications Erreur mapping commande cle SMTP"))?
+//     }
+//
+//     Ok(())
+// }
 
 async fn commande_upload_attachment<M>(middleware: &M, m: MessageValideAction)
                                        -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
