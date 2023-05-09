@@ -1328,93 +1328,94 @@ struct ReponseListeUsagers {
     usagers: Vec<InfoUsager>
 }
 
-async fn commande_notifier<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+async fn commande_notifier<M>(middleware: &M, mut m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509,
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
 {
     debug!("commande_notifier Consommer : {:?}", & m.message);
     let commande: CommandeRecevoir = m.message.get_msg().map_contenu()?;
     debug!("commande_notifier parsed : {:?}", commande);
 
-    todo!("fix me");
-    // let entete = m.message.get_entete();
-    //
-    // let enveloppe = match m.message.certificat.as_ref() {
-    //     Some(e) => e.as_ref(),
-    //     None => Err(format!("Erreur chargement certificat"))?
-    // };
-    //
-    // // Verifier que le certificat a un exchange ou user_id
-    // match &m.message.certificat {
-    //     Some(c) => {
-    //         match c.get_user_id()? {
-    //             Some(_) => (),  // Ok
-    //             None => match c.verifier_exchanges(vec![Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure]) {
-    //                 true => (),  // Ok
-    //                 false => Err(format!("transactions.retirer_subscription_webpush Certificat sans user_id ou sans exchange L1-L4"))?
-    //             }
-    //         }
-    //     },
-    //     None => Err(format!("commandes.commande_retirer_subscription_webpush Erreur chargement certificat pour notification"))?
-    // }
-    //
-    // // Sauvegarder la cle au besoin
-    // if let Some(cle) = commande.cle.as_ref() {
-    //     if let Some(partition) = cle.entete.partition.as_ref() {
-    //         debug!("Sauvegarder cle de notification avec partition {}", partition);
-    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-    //             .exchanges(vec![Securite::L3Protege])
-    //             .partition(partition)
-    //             .build();
-    //         middleware.transmettre_commande(routage, cle, true).await?;
-    //     }
-    // }
-    //
-    // // Determiner les destinataires
-    // let (destinataires, expiration) = match &commande.destinataires {
-    //     Some(d) => (d.clone(), commande.expiration.clone()),
-    //     None => {
-    //         // Forcer expiration de la notification (volatile)
-    //         let expiration = match commande.expiration {
-    //             Some(e) => Some(e),
-    //             None => Some(CONST_EXPIRATION_NOTIFICATION_DEFAUT)
-    //         };
-    //         // Charger la liste des proprietaires (requete a MaitreDesComptes)
-    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCOMPTES, ACTION_GET_LISTE_PROPRIETAIRES)
-    //             .exchanges(vec![Securite::L3Protege])
-    //             .build();
-    //         let requete = json!({});
-    //         match middleware.transmettre_requete(routage, &requete).await? {
-    //             TypeMessage::Valide(m) => {
-    //                 debug!("Reponse liste proprietaires : {:?}", m);
-    //                 let reponse: ReponseListeUsagers = m.message.parsed.map_contenu()?;
-    //                 let user_ids: Vec<String> = reponse.usagers.into_iter().map(|u| u.user_id).collect();
-    //                 (user_ids, expiration)
-    //             },
-    //             _ => Err(format!("Erreur chargement liste proprietaires"))?
-    //         }
-    //     }
-    // };
-    //
-    // // Verifier si la notification est volatile (avec expiration).
-    // // Les notifications volatiles ne sont pas sauvegardees via transaction.
-    // match &commande.expiration {
-    //     Some(e) => {
-    //         debug!("Sauvegarder notification volatile, expiration {}", e);
-    //         recevoir_notification(middleware, &commande, entete, enveloppe, destinataires).await?;
-    //         Ok(middleware.reponse_ok()?)
-    //     },
-    //     None => {
-    //         // Notification non volatile (avec destinataires, sans expiration)
-    //         // sauvegarder sous forme de transaction
-    //         debug!("Sauvegarder notification avec destinataires, sans expiration");
-    //         Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
-    //     }
-    // }
+    let message_id = commande.message.id.clone();
+
+    // Sauvegarder la cle au besoin
+    if let Some(mut attachements) = m.message.parsed.attachements.take() {
+        if let Some(cle_value) = attachements.remove("cle") {
+            sauvegarde_attachement_cle(middleware, cle_value).await?;
+        }
+    }
+
+    let enveloppe = match m.message.certificat.as_ref() {
+        Some(e) => e.as_ref(),
+        None => Err(format!("Erreur chargement certificat"))?
+    };
+
+    // Verifier que le certificat a un exchange ou user_id
+    match &m.message.certificat {
+        Some(c) => {
+            match c.get_user_id()? {
+                Some(_) => (),  // Ok
+                None => match c.verifier_exchanges(vec![Securite::L1Public, Securite::L2Prive, Securite::L3Protege, Securite::L4Secure]) {
+                    true => (),  // Ok
+                    false => Err(format!("transactions.retirer_subscription_webpush Certificat sans user_id ou sans exchange L1-L4"))?
+                }
+            }
+        },
+        None => Err(format!("commandes.commande_retirer_subscription_webpush Erreur chargement certificat pour notification"))?
+    }
+
+    // Determiner les destinataires
+    let (destinataires, expiration) = match &commande.destinataires {
+        Some(d) => (d.clone(), commande.expiration.clone()),
+        None => {
+            // Forcer expiration de la notification (volatile)
+            let expiration = match commande.expiration {
+                Some(e) => Some(e),
+                None => Some(CONST_EXPIRATION_NOTIFICATION_DEFAUT)
+            };
+            // Charger la liste des proprietaires (requete a MaitreDesComptes)
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCOMPTES, ACTION_GET_LISTE_PROPRIETAIRES)
+                .exchanges(vec![Securite::L3Protege])
+                .build();
+            let requete = json!({});
+            match middleware.transmettre_requete(routage, &requete).await? {
+                TypeMessage::Valide(m) => {
+                    debug!("Reponse liste proprietaires : {:?}", m);
+                    let reponse: ReponseListeUsagers = m.message.parsed.map_contenu()?;
+                    let user_ids: Vec<String> = reponse.usagers.into_iter().map(|u| u.user_id).collect();
+                    (user_ids, expiration)
+                },
+                _ => Err(format!("Erreur chargement liste proprietaires"))?
+            }
+        }
+    };
+
+    // Verifier si la notification est volatile (avec expiration).
+    // Les notifications volatiles ne sont pas sauvegardees via transaction.
+    match &commande.expiration {
+        Some(e) => {
+            // Sauvegarder la cle au besoin
+            if let Some(mut attachements) = m.message.parsed.attachements.take() {
+                if let Some(cle_value) = attachements.remove("cle") {
+                    sauvegarde_attachement_cle(middleware, cle_value).await?;
+                }
+            }
+            debug!("Sauvegarder notification volatile, expiration {}", e);
+            recevoir_notification(middleware, message_id, &commande, enveloppe, destinataires).await?;
+            Ok(middleware.reponse_ok()?)
+        },
+        None => {
+            // Notification non volatile (avec destinataires, sans expiration)
+            // sauvegarder sous forme de transaction
+            debug!("Sauvegarder notification avec destinataires, sans expiration");
+            Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
+        }
+    }
 }
 
 async fn recevoir_notification<M>(
     middleware: &M,
+    message_id: String,
     notification: &CommandeRecevoir,
     // entete: &Entete,
     enveloppe: &EnveloppeCertificat,
@@ -1424,8 +1425,6 @@ async fn recevoir_notification<M>(
     where M: GenerateurMessages + MongoDao + ValidateurX509
 {
     debug!("recevoir_notification {:?} de {:?} pour {:?}", notification, enveloppe, destinataires);
-
-    todo!("fix me");
 
     // let fp_certs = enveloppe.get_pem_vec();
     // let certificat_message_pem: Vec<String> = fp_certs.into_iter().map(|c| c.pem).collect();
@@ -1441,71 +1440,67 @@ async fn recevoir_notification<M>(
     //         middleware.transmettre_commande(routage, cle, true).await?;
     //     }
     // }
-    //
-    // let message = &notification.message;
-    //
-    // let now: Bson = DateEpochSeconds::now().into();
+
+    let message_bson = convertir_to_bson(notification.message.clone())?;
+
+    let now: Bson = DateEpochSeconds::now().into();
     // let uuid_transaction = entete.uuid_transaction.as_str();
-    //
-    // let mut liste_usagers = Vec::new();
-    // for user_id in &destinataires {
-    //     // Sauvegarder message pour l'usager
-    //     debug!("transaction_recevoir Sauvegarder message pour usager : {}", user_id);
-    //     // map_usagers.insert(user_id.to_owned(), Some(user_id.to_owned()));
-    //     liste_usagers.push(DestinataireInfo {adresse: None, user_id: Some(user_id.to_owned())});
-    //
-    //     let doc_user_reception = doc! {
-    //         "user_id": user_id,
-    //         "uuid_transaction": uuid_transaction,
-    //         "uuid_message": uuid_transaction,
-    //         "lu": false,
-    //         CHAMP_SUPPRIME: false,
-    //         "date_reception": &now,
-    //         "date_ouverture": None::<&str>,
-    //         "certificat_message": &certificat_message_pem,
-    //         "message_chiffre": &message.message_chiffre,
-    //
-    //         // Attachments - note, pas encore supporte via notifications
-    //         CHAMP_ATTACHMENTS: None::<&str>,  // &attachments_bson,
-    //         CHAMP_ATTACHMENTS_TRAITES: true,  // &attachments_recus,
-    //
-    //         // Info specifique aux notifications
-    //         "ref_hachage_bytes": &message.ref_hachage_bytes,
-    //         "header": &message.header,
-    //         "format": &message.format,
-    //         "niveau": &message.niveau,
-    //         "expiration": notification.expiration,
-    //     };
-    //
-    //     debug!("recevoir_notification Inserer message {:?}", doc_user_reception);
-    //     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    //     match collection.insert_one(&doc_user_reception, None).await {
-    //         Ok(_r) => (),
-    //         Err(e) => {
-    //             let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
-    //             if erreur_duplication {
-    //                 info!("recevoir_notification Erreur duplication notification : {:?}", e);
-    //             } else {
-    //                 Err(e)?  // Relancer erreur
-    //             }
-    //         }
-    //     }
-    //
-    //     // Evenement de nouveau message pour front-end, notifications
-    //     if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
-    //         // let message_mappe: MessageIncoming =
-    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
-    //             .exchanges(vec![L2Prive])
-    //             .partition(user_id)
-    //             .build();
-    //         middleware.emettre_evenement(routage, &m).await?;
-    //     }
-    // }
-    //
-    // if let Err(e) = emettre_notifications(
-    //     middleware, &liste_usagers, uuid_transaction, uuid_transaction).await {
-    //     warn!("recevoir_notification Erreur emission notifications : {:?}", e);
-    // }
-    //
-    // Ok(())
+
+    let mut liste_usagers = Vec::new();
+    for user_id in &destinataires {
+        // Sauvegarder message pour l'usager
+        debug!("transaction_recevoir Sauvegarder message pour usager : {}", user_id);
+        // map_usagers.insert(user_id.to_owned(), Some(user_id.to_owned()));
+        liste_usagers.push(DestinataireInfo {adresse: None, user_id: Some(user_id.to_owned())});
+
+        let doc_user_reception = doc! {
+            "user_id": user_id,
+            // "message_id": &message_id,
+            "lu": false,
+            CHAMP_SUPPRIME: false,
+            "date_reception": &now,
+            "date_ouverture": None::<&str>,
+            // "certificat_message": &certificat_message_pem,
+            "message": &message_bson,
+
+            // Attachments - note, pas encore supporte via notifications
+            CHAMP_FICHIERS: None::<&str>,  // &attachments_bson,
+            CHAMP_FICHIERS_COMPLETES: true,  // &attachments_recus,
+
+            // Info specifique aux notifications
+            "niveau": &notification.niveau,
+            "expiration": notification.expiration,
+        };
+
+        debug!("recevoir_notification Inserer message {:?}", doc_user_reception);
+        let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+        match collection.insert_one(&doc_user_reception, None).await {
+            Ok(_r) => (),
+            Err(e) => {
+                let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+                if erreur_duplication {
+                    info!("recevoir_notification Erreur duplication notification : {:?}", e);
+                } else {
+                    Err(e)?  // Relancer erreur
+                }
+            }
+        }
+
+        // Evenement de nouveau message pour front-end, notifications
+        if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
+            // let message_mappe: MessageIncoming =
+            let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
+                .exchanges(vec![Securite::L2Prive])
+                .partition(user_id)
+                .build();
+            middleware.emettre_evenement(routage, &m).await?;
+        }
+    }
+
+    if let Err(e) = emettre_notifications(
+        middleware, &liste_usagers, message_id.as_str()).await {
+        warn!("recevoir_notification Erreur emission notifications : {:?}", e);
+    }
+
+    Ok(())
 }

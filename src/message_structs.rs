@@ -840,10 +840,16 @@ pub struct DocumentNotification {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeRecevoir {
+    pub message: MessageMilleGrille,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub destinataires: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub niveau: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expiration: Option<i64>,
-    pub message: DocumentNotification,
-    #[serde(rename="_cle", skip_serializing)]
-    pub cle: Option<MessageMilleGrille>,
+
+    // pub message: DocumentNotification,
+    // #[serde(rename="_cle", skip_serializing)]
+    // pub cle: Option<MessageMilleGrille>,
 }

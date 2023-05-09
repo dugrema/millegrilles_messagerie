@@ -338,6 +338,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
     let mut projection = doc! {
         "message.id": true,
         "message.dechiffrage.hachage": true,
+        "message.dechiffrage.cle_id": true,
     };
     let opts = FindOptions::builder()
         // .projection(projection)
@@ -369,9 +370,14 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
                             Some(inner) => {
                                 hachage_bytes.insert(inner.to_owned());
                             },
-                            None => {
-                                debug!("Pas d'information dechiffrage.hachage, skip");
-                                continue;
+                            None => match inner.get("cle_id") {  // Fallback, cle_id
+                                Some(inner) => {
+                                    hachage_bytes.insert(inner.to_owned());
+                                },
+                                None => {
+                                    debug!("Pas d'information dechiffrage.hachage, skip");
+                                    continue;
+                                }
                             }
                         }
                     },
