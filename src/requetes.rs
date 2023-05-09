@@ -366,11 +366,11 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
                 let doc_message_incoming: DocumentIncoming = convertir_bson_deserializable(doc_result)?;
                 match doc_message_incoming.message.dechiffrage {
                     Some(inner) => {
-                        match inner.get("hachage") {
+                        match inner.hachage.as_ref() {
                             Some(inner) => {
                                 hachage_bytes.insert(inner.to_owned());
                             },
-                            None => match inner.get("cle_id") {  // Fallback, cle_id
+                            None => match inner.cle_id.as_ref() {  // Fallback, cle_id
                                 Some(inner) => {
                                     hachage_bytes.insert(inner.to_owned());
                                 },

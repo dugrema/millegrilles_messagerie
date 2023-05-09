@@ -1487,13 +1487,31 @@ async fn recevoir_notification<M>(
         }
 
         // Evenement de nouveau message pour front-end, notifications
-        if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
-            // let message_mappe: MessageIncoming =
+        if let Ok(mut m) = convertir_bson_deserializable::<DocumentIncoming>(doc_user_reception) {
+            // // let message_mappe: MessageIncoming =
+            // let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
+            //     .exchanges(vec![Securite::L2Prive])
+            //     .partition(user_id)
+            //     .build();
+            // middleware.emettre_evenement(routage, &m).await?;
+
             let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
                 .exchanges(vec![Securite::L2Prive])
                 .partition(user_id)
                 .build();
-            middleware.emettre_evenement(routage, &m).await?;
+
+            match middleware.get_certificat(m.message.pubkey.as_str()).await {
+                Some(inner) => {
+                    let mut evenement = MessageIncomingClient::from(m);
+                    evenement.certificat = Some(inner.get_pem_vec_extracted());
+                    middleware.emettre_evenement(routage, &evenement).await?;
+                },
+                None => {
+                    error!("transasctions.transaction_recevoir Erreur get_certificat {} du message {} pour emettre_evenement",
+                        m.message.pubkey, m.message.id);
+                }
+            }
+
         }
     }
 
