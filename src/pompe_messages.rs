@@ -18,7 +18,7 @@ use millegrilles_common_rust::constantes::{CHAMP_MODIFICATION, MessageKind, Secu
 use millegrilles_common_rust::constantes::Securite::{L1Public, L2Prive};
 use millegrilles_common_rust::formatteur_messages::{FormatteurMessage, MessageInterMillegrille, MessageMilleGrille};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
-use millegrilles_common_rust::messages_generiques::{FicheApplication, FicheMillegrilleApplication, MessageCedule};
+use millegrilles_common_rust::messages_generiques::{CommandePostmasterPoster, FicheApplication, FicheMillegrilleApplication, MessageCedule};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
@@ -1002,6 +1002,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     // let ts_courant = Utc::now();
 
     let fiches = get_fiches_applications(middleware, message).await?;
+    let enveloppe_privee = middleware.get_enveloppe_signature();
 
     for fiche in fiches.into_iter() {
         // Incrementer compteur, mettre next push a 15 minutes (en cas d'echec)
@@ -1023,10 +1024,23 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
             .exchanges(vec![Securite::L1Public])
             .build();
 
-        debug!("Pousser message vers postmaster:\n{}", serde_json::to_string(&message)?);
+        let contenu_poster = CommandePostmasterPoster {
+            idmg: fiche.idmg.clone(),
+            message_id: uuid_message.to_owned(),
+            fiche,
+        };
+
+        let mut commande_poster = MessageMilleGrille::new_signer(
+            &enveloppe_privee, MessageKind::Commande, &contenu_poster,
+            Some(DOMAINE_POSTMASTER), Some(TRANSACTION_POSTER), None::<&str>,
+            None::<i32>, true)?;
+
+        commande_poster.ajouter_attachement("message", serde_json::to_value(message)?);
+
+        debug!("Pousser message vers postmaster:\n{}", serde_json::to_string(&commande_poster)?);
 
         middleware.emettre_message_millegrille(
-            routage, true, TypeMessageOut::Commande, message).await?;
+            routage, true, TypeMessageOut::Commande, commande_poster).await?;
     }
 
     Ok(())
