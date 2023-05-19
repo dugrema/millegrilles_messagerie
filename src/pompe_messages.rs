@@ -9,19 +9,23 @@ use millegrilles_common_rust::mongodb::options::{AggregateOptions, CountOptions,
 use log::{debug, error, info, warn};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{doc, Document};
-use millegrilles_common_rust::certificats::ValidateurX509;
-use millegrilles_common_rust::chiffrage::rechiffrer_asymetrique_multibase;
+use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509};
+use millegrilles_common_rust::chiffrage::{CleSecrete, rechiffrer_asymetrique_multibase};
 use millegrilles_common_rust::chiffrage_cle::requete_charger_cles;
+use millegrilles_common_rust::chiffrage_ed25519::{chiffrer_asymmetrique_ed25519, dechiffrer_asymmetrique_ed25519};
 use millegrilles_common_rust::chrono::{Duration, Utc};
-use millegrilles_common_rust::constantes::{CHAMP_MODIFICATION, Securite, SECURITE_2_PRIVE};
+use millegrilles_common_rust::constantes::{CHAMP_MODIFICATION, MessageKind, Securite, SECURITE_2_PRIVE};
 use millegrilles_common_rust::constantes::Securite::{L1Public, L2Prive};
-use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
+use millegrilles_common_rust::formatteur_messages::{FormatteurMessage, MessageInterMillegrille, MessageMilleGrille};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
-use millegrilles_common_rust::messages_generiques::MessageCedule;
+use millegrilles_common_rust::messages_generiques::{FicheApplication, FicheMillegrilleApplication, MessageCedule};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
-use millegrilles_common_rust::serde_json;
+use millegrilles_common_rust::{multibase, serde_json};
+use millegrilles_common_rust::middleware::ChiffrageFactoryTrait;
+use millegrilles_common_rust::multibase::Base;
+use millegrilles_common_rust::rabbitmq_dao::TypeMessageOut;
 use millegrilles_common_rust::serde_json::{json, Map, Value};
 use millegrilles_common_rust::tokio_stream::StreamExt;
 
@@ -95,7 +99,7 @@ impl PompeMessages {
 
     /// Thread d'execution de la pompe.
     pub async fn run<M>(mut self, middleware: Arc<M>)
-        where M: ValidateurX509 + GenerateurMessages + MongoDao
+        where M: ValidateurX509 + GenerateurMessages + MongoDao + ChiffrageFactoryTrait
     {
         debug!("pompe_messages.PompeMessages Running thread pompe");
 
@@ -112,7 +116,7 @@ impl PompeMessages {
 
     async fn cycle_pompe_messages<M>(&mut self, middleware: &M, trigger: MessagePompe)
         -> Result<(), Box<dyn Error>>
-        where M: ValidateurX509 + GenerateurMessages + MongoDao
+        where M: ValidateurX509 + GenerateurMessages + MongoDao + ChiffrageFactoryTrait
     {
         traiter_dns_unresolved(middleware, &trigger).await;
         traiter_messages_locaux(middleware, &trigger).await;
@@ -248,7 +252,7 @@ async fn emettre_notifications_usager<M>(middleware: &M)
 }
 
 async fn traiter_messages_tiers<M>(middleware: &M, trigger: &MessagePompe)
-    where M: ValidateurX509 + GenerateurMessages + MongoDao
+    where M: ValidateurX509 + GenerateurMessages + MongoDao + ChiffrageFactoryTrait
 {
     match traiter_messages_tiers_work(middleware, trigger).await {
         Ok(()) => (),
@@ -260,12 +264,12 @@ async fn traiter_messages_tiers<M>(middleware: &M, trigger: &MessagePompe)
 
 async fn traiter_messages_tiers_work<M>(middleware: &M, trigger: &MessagePompe)
     -> Result<(), Box<dyn Error>>
-    where M: ValidateurX509 + GenerateurMessages + MongoDao
+    where M: ValidateurX509 + GenerateurMessages + MongoDao + ChiffrageFactoryTrait
 {
     let batch = get_batch_uuid_transactions(middleware, trigger).await?;
     debug!("Traiter batch messages vers tiers : {:?}", batch);
 
-    let filtre = doc! {"uuid_transaction": {"$in": batch}};
+    let filtre = doc! {"message_id": {"$in": batch}};
     let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     let mut curseur = collection.find(filtre, None).await?;
     while let Some(r) = curseur.next().await {
@@ -756,54 +760,277 @@ pub fn verifier_message_complete<M>(middleware: &M, message: &DocOutgointProcess
     idmgs_completes && attachments_completes
 }
 
-async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
+async fn charger_preparer_message<M,S>(middleware: &M, message_id: S)
+    -> Result<DocumentOutgoing, Box<dyn Error>>
+where
+    M: FormatteurMessage + MongoDao + ValidateurX509,
+    S: AsRef<str>
+{
+    let message_id = message_id.as_ref();
+    let mut commande_poster = charger_message(middleware, message_id).await?;
+
+    // Charger certificat utilise dans le message
+    let certificat_message: Vec<String> = {
+        let fingerprint = commande_poster.message.pubkey.as_str();
+        match middleware.get_certificat(fingerprint).await {
+            Some(c) => Ok(c.get_pem_vec_extracted()),
+            None => Err(format!("pompe_messages.pousser_message_vers_tiers Certificat {} manquant pour message {}", fingerprint, message_id))
+        }
+    }?;
+
+    let certificat_millegrille = {
+        let enveloppe_privee = middleware.get_enveloppe_signature();
+        let enveloppe_ca = enveloppe_privee.enveloppe_ca.as_ref();
+        enveloppe_ca.get_pem_vec_extracted().pop().expect("CA pop")
+    };
+
+    // Injecter certificats dans le message inter-millegrille
+    commande_poster.message.certificat = Some(certificat_message);
+    commande_poster.message.millegrille = Some(certificat_millegrille);
+
+    Ok(commande_poster)
+}
+
+async fn get_cle_message<M,S>(middleware: &M, cle_ref: S)
+    -> Result<CleSecrete, Box<dyn Error>>
+    where
+        M: GenerateurMessages,
+        S: AsRef<str>
+{
+    let cle_ref = cle_ref.as_ref();
+    let hachage_bytes = vec![cle_ref.to_owned()];
+    let cle_message = requete_charger_cles(middleware, &hachage_bytes).await?;
+    debug!("Recu cle message rechiffree : {:?}", cle_message);
+    let cle_message_info = match &cle_message.cles {
+        Some(c) => {
+            match c.get(cle_ref) {
+                Some(c) => Ok(c),
+                None => Err(format!("pompe_messages.get_cle_message Cle manquante dans reponse MaitreDesCles pour message"))
+            }
+        },
+        None => Err(format!("pompe_messages.get_cle_message Cle manquante pour message"))
+    }?;
+
+    let cle_secrete_message = {
+        let cle_message_str = cle_message_info.cle.as_str();
+        let enveloppe_privee = middleware.get_enveloppe_signature();
+        let cle_privee = enveloppe_privee.cle_privee();
+        let (_, cle_asymmetrique_bytes) = multibase::decode(cle_message_str)?;
+        dechiffrer_asymmetrique_ed25519(&cle_asymmetrique_bytes[..], cle_privee)?
+    };
+
+    Ok(cle_secrete_message)
+}
+
+async fn get_fiches_applications<M>(middleware: &M, message: &DocOutgointProcessing)
+    -> Result<Vec<FicheMillegrilleApplication>, Box<dyn Error>>
     where M: ValidateurX509 + GenerateurMessages + MongoDao
+{
+    let mappings = match message.idmgs_mapping.as_ref() {
+        Some(mappings) => match message.idmgs_unprocessed.as_ref() {
+            Some(i) => i,
+            None => Err(format!("pompe_message.get_fiches_applications Traitement d'un message ({}) avec aucuns idmgs unprocessed, ignorer.", message.message_id))?
+        },
+        None => Err(format!("pompe_message.generer_commandes_poster Aucun mapping tiers"))?
+    };
+
+    // Faire liste des idmgs qui ne sont pas encore traites
+    let idmg_local = middleware.idmg();
+    let mut set_idmgs = HashSet::new();
+    for idmg in mappings {
+        if idmg.as_str() == idmg_local { continue; } // Skip local
+        set_idmgs.insert(idmg.as_str());
+    }
+
+    // Recuperer mapping de l'application messagerie pour chaque idmg
+    let routage_requete = RoutageMessageAction::builder("CoreTopologie", "applicationsTiers")
+        .exchanges(vec![L2Prive])
+        .build();
+    let requete = json!({"idmgs": &set_idmgs, "application": "messagerie_web"});
+    debug!("generer_commandes_poster Resolve idmgs avec CoreTopologie: {:?}", requete);
+    let fiches_applications: ReponseFichesApplications  = match middleware.transmettre_requete(routage_requete, &requete).await? {
+        TypeMessage::Valide(r) => {
+            debug!("generer_commandes_poster Reponse applications : {:?}", r);
+            Ok(r.message.parsed.map_contenu()?)
+        },
+        _ => Err(format!("pompe_messages.generer_commandes_poster Requete applicationsTiers, reponse de mauvais type"))
+    }?;
+    debug!("generer_commandes_poster Reponse applications mappees : {:?}", fiches_applications);
+
+    Ok(fiches_applications.fiches)
+}
+
+async fn rechiffrer_cle_pour_fiche<M>(middleware: &M, cle_secrete: &CleSecrete, fiche: &FicheMillegrilleApplication)
+    -> Result<HashMap<String, String>, Box<dyn Error>>
+    where M: ValidateurX509
+{
+    let certificats = match fiche.chiffrage.as_ref() {
+        Some(inner) => inner,
+        None => Err(format!("pompe_messages.rechiffrer_cle_pour_fiche Aucun certificat chiffrage pour fiche {}", fiche.idmg))?
+    };
+
+    let ca_cert = match fiche.ca.as_ref() {
+        Some(inner) => inner.as_str(),
+        None => Err(format!("pompe_messages.rechiffrer_cle_pour_fiche Aucun certificat CA pour fiche {}", fiche.idmg))?
+    };
+
+    let mut cles_rechiffrees = HashMap::new();
+
+    let enveloppe_ca = middleware.charger_enveloppe(&vec![ca_cert.to_string()], None, None).await?;
+
+    let date_now = Utc::now();
+
+    for certificat in certificats {
+        let enveloppe = middleware.charger_enveloppe(certificat, None, Some(ca_cert)).await?;
+        let chaine_valide = middleware.valider_chaine(enveloppe.as_ref(), Some(enveloppe_ca.as_ref()))?;
+        let presentement_valide = middleware.valider_pour_date(enveloppe.as_ref(), &date_now)?;
+        debug!("rechiffrer_cle_pour_fiche Chaine valide {}, presentement valide {}", chaine_valide, presentement_valide);
+        if chaine_valide && presentement_valide {
+            let cle_rechiffree = chiffrer_asymmetrique_ed25519(
+                &cle_secrete.0[..], &enveloppe.cle_publique)?;
+            let cle_multibase: String = multibase::encode(Base::Base64, &cle_rechiffree[..]);
+            cles_rechiffrees.insert(enveloppe.fingerprint.clone(), cle_multibase);
+        } else {
+            debug!("rechiffrer_cle_pour_fiche Certificat rejete : {}", enveloppe.fingerprint);
+        }
+    }
+
+    // Rechiffrer la cle pour le CA destinataire
+    {
+        let cle_rechiffree = chiffrer_asymmetrique_ed25519(
+            &cle_secrete.0[..], &enveloppe_ca.cle_publique)?;
+        let cle_multibase: String = multibase::encode(Base::Base64, &cle_rechiffree[..]);
+        cles_rechiffrees.insert(enveloppe_ca.fingerprint.clone(), cle_multibase);
+    }
+
+    Ok(cles_rechiffrees)
+}
+
+async fn generer_attachement_transfert<M>(
+    middleware: &M, message: &DocumentOutgoing,
+    processing: &DocOutgointProcessing,
+    fiche: &FicheMillegrilleApplication
+)
+    -> Result<MessageMilleGrille, Box<dyn Error>>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao + ChiffrageFactoryTrait
+{
+    let idmg_fiche = fiche.idmg.as_str();
+
+    let mapping = match processing.idmgs_mapping.as_ref() {
+        Some(inner) => match inner.get(idmg_fiche) {
+            Some(inner) => inner,
+            None => Err(format!("pompe_messages.generer_attachement_transfert Mapping idmg {} absent", idmg_fiche))?
+        },
+        None => Err(format!("pompe_messages.generer_attachement_transfert Mapping idmgs absent"))?
+    };
+
+    let destinataires = {
+        let mut destinataires = mapper_destinataires(processing, mapping);
+        destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
+    };
+
+    let commande_transfert = json!({
+        "to": destinataires,
+        "files": message.fuuids.clone(),
+    });
+
+    debug!("pompe_messages.generer_attachement_transfert Commande transfert a chiffrer : {:?}", commande_transfert);
+
+    let ca_cert = match fiche.ca.as_ref() {
+        Some(inner) => inner.as_str(),
+        None => Err(format!("pompe_messages.generer_attachement_transfert Aucun certificat CA pour fiche {}", fiche.idmg))?
+    };
+
+    let enveloppe_ca = middleware.charger_enveloppe(&vec![ca_cert.to_string()], None, None).await?;
+    let certificats = match fiche.chiffrage.as_ref() {
+        Some(inner) => inner,
+        None => Err(format!("pompe_messages.generer_attachement_transfert Aucun certificat chiffrage pour fiche {}", fiche.idmg))?
+    };
+
+    let date_now = Utc::now();
+    let mut enveloppes = Vec::new();
+    for certificat in certificats {
+        let enveloppe = middleware.charger_enveloppe(certificat, None, Some(ca_cert)).await?;
+        let chaine_valide = middleware.valider_chaine(enveloppe.as_ref(), Some(enveloppe_ca.as_ref()))?;
+        let presentement_valide = middleware.valider_pour_date(enveloppe.as_ref(), &date_now)?;
+        debug!("generer_attachement_transfert Chaine valide {}, presentement valide {}", chaine_valide, presentement_valide);
+        if chaine_valide && presentement_valide {
+            enveloppes.push(enveloppe);
+        } else {
+            debug!("generer_attachement_transfert Certificat rejete : {}", enveloppe.fingerprint);
+        }
+    }
+
+    let certificats_ref: Vec<&EnveloppeCertificat> = enveloppes.iter().map(|c| c.as_ref()).collect();
+
+    let message_chiffre = MessageInterMillegrille::new(
+        middleware, commande_transfert, Some(certificats_ref))?;
+
+    let enveloppe_privee = middleware.get_enveloppe_signature();
+    let message_signe = MessageMilleGrille::new_signer(
+        enveloppe_privee.as_ref(), MessageKind::CommandeInterMillegrille, &message_chiffre,
+        Some(DOMAINE_NOM), Some("destinataires"), None::<&str>, None::<i32>, true)?;
+
+    debug!("generer_attachement_transfert Message transfert chiffre : {:?}", serde_json::to_string(&message_signe)?);
+
+    Ok(message_signe)
+}
+
+async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProcessing) -> Result<(), Box<dyn Error>>
+    where M: ValidateurX509 + GenerateurMessages + MongoDao + ChiffrageFactoryTrait
 {
     debug!("Pousser message : {:?}", message);
     let uuid_transaction = message.transaction_id.as_str();
     let uuid_message = message.message_id.as_str();
 
-    let idmg_local = middleware.idmg();
-
     // Charger transaction message mappee via serde
-    // let (message_a_transmettre, message_mappe) = charger_message(middleware, uuid_transaction).await?;
-    let commande_poster = charger_message(middleware, uuid_transaction).await?;
+    let commande_poster = charger_preparer_message(middleware, uuid_message).await?;
 
-    todo!("fix me");
-    // // Charger certificat utilise dans le message
-    // let certificat_message: Vec<String> = {
-    //     let fingerprint = message_mappe.message.pubkey.as_str();
-    //     match middleware.get_certificat(fingerprint).await {
-    //         Some(c) => Ok(c.get_pem_vec_extracted()),
-    //         None => Err(format!("pompe_messages.pousser_message_vers_tiers Certificat {} manquant pour message {}", fingerprint, uuid_message))
-    //     }
-    // }?;
-    //
-    // let certificat_millegrille = {
-    //     let enveloppe_privee = middleware.get_enveloppe_signature();
-    //     let enveloppe_ca = enveloppe_privee.enveloppe_ca.as_ref();
-    //     enveloppe_ca.get_pem_vec_extracted().pop().expect("CA pop")
-    // };
-    //
-    // // Recuperer cle du message
-    // let hachage_bytes = vec![message_mappe.message.get_ref_cle()?.to_owned()];
-    // let cle_message = requete_charger_cles(middleware, &hachage_bytes).await?;
-    // debug!("Recu cle message rechiffree : {:?}", cle_message);
-    // let cle_message_info = match &cle_message.cles {
-    //     Some(c) => {
-    //         match c.get(message_mappe.message.get_ref_cle()?) {
-    //             Some(c) => Ok(c),
-    //             None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante dans reponse MaitreDesCles pour message {}", uuid_message))
-    //         }
-    //     },
-    //     None => Err(format!("pompe_messages.pousser_message_vers_tiers Cle manquante pour message {}", uuid_message))
-    // }?;
-    // let cle_message_str = cle_message_info.cle.as_str();
-    // let enveloppe_privee = middleware.get_enveloppe_signature();
-    // let cle_privee = enveloppe_privee.cle_privee();
-    //
+    // Recuperer cle du message
+    let cle_secrete_message = match commande_poster.message.dechiffrage.as_ref() {
+        Some(inner) => {
+            match inner.hachage.as_ref() {
+                Some(inner) => {
+                    Ok(get_cle_message(middleware, inner).await?)
+                },
+                None => Err(format!("pompe_messages.pousser_message_vers_tiers Hachage cle manquant"))
+            }
+        },
+        None => Err(format!("pompe_messages.pousser_message_vers_tiers Information dechiffrage manquant"))
+    }?;
+
     // let ts_courant = Utc::now();
-    //
+
+    let fiches = get_fiches_applications(middleware, message).await?;
+
+    for fiche in fiches.into_iter() {
+        // Incrementer compteur, mettre next push a 15 minutes (en cas d'echec)
+        incrementer_push(middleware, fiche.idmg.as_str(), uuid_transaction).await?;
+
+        // Generer attachement cles
+        let cles_rechiffrees = rechiffrer_cle_pour_fiche(middleware, &cle_secrete_message, &fiche).await?;
+        debug!("pousser_message_vers_tiers Cles rechiffrees pour {} : {:?}", fiche.idmg, cles_rechiffrees);
+        let attachement_transfert = generer_attachement_transfert(
+            middleware, &commande_poster, &message, &fiche).await?;
+
+        // Formatter commande avec attachements pour fiche courante
+        let mut message = commande_poster.message.clone();
+        message.ajouter_attachement("cles", serde_json::to_value(cles_rechiffrees)?);
+        message.ajouter_attachement("transfert", serde_json::to_value(attachement_transfert)?);
+
+        // Emettre message sous forme de commande inter-millegrille vers PostMaster
+        let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, TRANSACTION_POSTER)
+            .exchanges(vec![Securite::L1Public])
+            .build();
+
+        debug!("Pousser message vers postmaster:\n{}", serde_json::to_string(&message)?);
+
+        middleware.emettre_message_millegrille(
+            routage, true, TypeMessageOut::Commande, message).await?;
+    }
+
+    Ok(())
+
     // let mapping: Vec<IdmgMappingDestinataires> = {
     //     let mut mapping = Vec::new();
     //     match message.idmgs_mapping.as_ref() {
@@ -936,6 +1163,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
     // let routage = RoutageMessageAction::builder(DOMAINE_POSTMASTER, "poster")
     //     .exchanges(vec![L1Public])
     //     .build();
+
     // middleware.transmettre_commande(routage, &commande, false).await?;
     //
     // Ok(())
@@ -995,20 +1223,20 @@ async fn get_batch_uuid_transactions<M>(middleware: &M, trigger: &MessagePompe)
         // Expansion de tous les idmgs par message
         // Convertir idmgs_mapping en array, et faire unwind. Expose next_push_time.
         doc! {"$project": {
-            "uuid_transaction": 1,
+            "message_id": 1,
             // "last_processed": true,
             "idmgs_mapping": {"$objectToArray": "$idmgs_mapping"}
         }},
         doc! { "$unwind": {"path": "$idmgs_mapping"} },
         doc! { "$match": {"idmgs_mapping.v.next_push_time": {"$lte": ts_courant}} },
 
-        // // Grouper par date last_processed, permet d'aller chercher les plus vieux messages
-        doc! {"$group": {"_id": "$uuid_transaction", "next_date": {"$min": "$idmgs_mapping.v.next_push_time"}}},
+        // Grouper par date last_processed, permet d'aller chercher les plus vieux messages
+        doc! {"$group": {"_id": "$message_id", "next_date": {"$min": "$idmgs_mapping.v.next_push_time"}}},
 
-        // // Plus vieux en premier
+        // Plus vieux en premier
         doc! {"$sort": {"next_date": 1}},
 
-        // // Mettre une limite dans la batch de retour
+        // Mettre une limite dans la batch de retour
         doc! {"$limit": limit},
     ];
     debug!("get_batch_uuid_transactions Pipeline idmgs a loader : {:?}", pipeline);

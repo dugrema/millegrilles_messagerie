@@ -11,6 +11,7 @@ use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMil
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
 use millegrilles_common_rust::serde_json::{Map, Value};
 use millegrilles_common_rust::bson::serde_helpers::deserialize_chrono_datetime_from_bson_datetime;
+use millegrilles_common_rust::messages_generiques::FicheMillegrilleApplication;
 use millegrilles_common_rust::multibase::{Base, encode};
 use web_push::WebPushMessage;
 use crate::constantes::*;
@@ -523,21 +524,21 @@ pub struct ReponseFichesApplications {
     pub fiches: Vec<FicheMillegrilleApplication>
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FicheMillegrilleApplication {
-    pub idmg: String,
-    pub adresses: Vec<String>,
-    pub application: Vec<FicheApplication>,
-    pub ca: Option<String>,
-    pub chiffrage: Option<Vec<Vec<String>>>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FicheApplication {
-    pub application: String,
-    pub url: String,
-    pub version: Option<String>,
-}
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct FicheMillegrilleApplication {
+//     pub idmg: String,
+//     // pub adresses: Vec<String>,
+//     pub applications: Vec<FicheApplication>,
+//     pub ca: Option<String>,
+//     pub chiffrage: Option<Vec<Vec<String>>>,
+// }
+//
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct FicheApplication {
+//     pub application: String,
+//     pub url: String,
+//     pub version: Option<String>,
+// }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeConfirmerTransmission {
