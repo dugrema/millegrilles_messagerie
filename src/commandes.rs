@@ -1531,6 +1531,21 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
     debug!("commandes.commande_recevoir_externe Commande nouvelle versions parsed : {:?}", commande);
 
     // Valider messages
+    let options = ValidationOptions::new(true, false, true);
+
+    let mut enveloppe_message = MessageSerialise::from_parsed(commande.message)?;
+    let validation_message = enveloppe_message.valider(middleware, Some(&options)).await?;
+    if validation_message.valide() == false {
+        warn!("commande_recevoir_externe Message inter-millegrille invalide");
+        return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Signature message invalide"}), None)?))
+    }
+
+    let mut enveloppe_transfert = MessageSerialise::from_parsed(commande.transfert)?;
+    let validation_transfert = enveloppe_transfert.valider(middleware, Some(&options)).await?;
+    if validation_transfert.valide() == false {
+        warn!("commande_recevoir_externe Message transfert invalide");
+        return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Signature transfert invalide"}), None)?))
+    }
 
     todo!("fix me");
 }
