@@ -78,6 +78,7 @@ pub async fn consommer_commande<M>(middleware: &M, m: MessageValideAction, gesti
         COMMANDE_CONSERVER_CLES_ATTACHMENTS => commande_conserver_cles_attachments(middleware, m, gestionnaire).await,
         COMMANDE_GENERER_CLEWEBPUSH_NOTIFICATIONS => generer_clewebpush_notifications(middleware, m, gestionnaire).await,
         COMMANDE_EMETTRE_NOTIFICATIONS_USAGER => emettre_notifications_usager(middleware, m, gestionnaire).await,
+        COMMANDE_RECEVOIR_EXTERNE => commande_recevoir_externe(middleware, m, gestionnaire).await,
 
         // Transactions
         TRANSACTION_POSTER => commande_poster(middleware, m, gestionnaire).await,
@@ -1519,4 +1520,17 @@ async fn recevoir_notification<M>(
     }
 
     Ok(())
+}
+
+async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
+{
+    debug!("commandes.commande_recevoir_externe Consommer commande : {:?}", & m.message);
+    let mut commande: CommandeRecevoirPostExterne = m.message.get_msg().map_contenu()?;
+    debug!("commandes.commande_recevoir_externe Commande nouvelle versions parsed : {:?}", commande);
+
+    // Valider messages
+
+    todo!("fix me");
 }

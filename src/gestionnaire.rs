@@ -207,6 +207,7 @@ pub fn preparer_queues() -> Vec<QueueType> {
 
     let commandes_privees: Vec<&str> = vec![
         COMMANDE_CONSERVER_CLES_ATTACHMENTS,
+        COMMANDE_RECEVOIR_EXTERNE,
 
         TRANSACTION_POSTER,
         TRANSACTION_RECEVOIR,

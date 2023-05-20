@@ -179,6 +179,13 @@ pub struct DocumentRecevoirPost {
     pub fuuids: Option<Vec<String>>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeRecevoirPostExterne {
+    pub cles: HashMap<String, String>,
+    pub message: MessageMilleGrille,
+    pub transfert: MessageMilleGrille,
+}
+
 // #[derive(Clone, Debug, Serialize, Deserialize)]
 // pub struct CommandePostmasterPoster {
 //     pub message: Map<String, Value>,
