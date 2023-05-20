@@ -32,6 +32,7 @@ use millegrilles_common_rust::openssl::bn::BigNumContext;
 use millegrilles_common_rust::openssl::nid::Nid;
 use millegrilles_common_rust::openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use millegrilles_common_rust::dechiffrage::dechiffrer_documents;
+use millegrilles_common_rust::messages_generiques::ConfirmationTransmission;
 use millegrilles_common_rust::serde_json::Value;
 use web_push::{ContentEncoding, PartialVapidSignatureBuilder, SubscriptionInfo, VapidSignatureBuilder, WebPushClient, WebPushMessageBuilder};
 
@@ -472,10 +473,10 @@ async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideActi
     where M: ValidateurX509 + MongoDao + GenerateurMessages
 {
     debug!("commande_confirmer_transmission Consommer commande : {:?}", & m.message);
-    let commande: CommandeConfirmerTransmission = m.message.get_msg().map_contenu()?;
+    let commande: ConfirmationTransmission = m.message.get_msg().map_contenu()?;
     debug!("commande_confirmer_transmission Commande parsed : {:?}", commande);
 
-    let uuid_message = commande.message_id.as_str();
+    let message_id = commande.message_id.as_str();
     let idmg = commande.idmg.as_str();
 
     // let destinataires = match commande.destinataires.as_ref() {
@@ -487,14 +488,11 @@ async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideActi
 
     let result_code = commande.code as u32;
     let processed = match &commande.code {
-        200 => true,
-        201 => true,
-        202 => true,
-        404 => true,
+        200 | 201 | 202 | 404 => true,
         _ => false
     };
 
-    marquer_outgoing_resultat(middleware, uuid_message, idmg, commande.destinataires.as_ref(), processed).await?;
+    marquer_outgoing_resultat(middleware, message_id, idmg, None, processed, Some(result_code)).await?;
 
     Ok(None)
 }

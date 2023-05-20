@@ -540,13 +540,13 @@ pub struct ReponseFichesApplications {
 //     pub version: Option<String>,
 // }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CommandeConfirmerTransmission {
-    pub code: i32,
-    pub idmg: String,
-    pub message_id: String,
-    pub destinataires: Option<Vec<ConfirmerDestinataire>>,
-}
+// #[derive(Clone, Debug, Serialize, Deserialize)]
+// pub struct CommandeConfirmerTransmission {
+//     pub code: i32,
+//     pub idmg: String,
+//     pub message_id: String,
+//     pub destinataires: Option<Vec<ConfirmerDestinataire>>,
+// }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfirmerDestinataire {
@@ -670,7 +670,7 @@ pub struct ConfirmerTransmissionMessageMillegrille {
     pub message_id: String,
     pub user_id: String,
     pub idmg: String,
-    pub destinataires: Vec<ConfirmerDestinataire>,
+    pub destinataires: Option<Vec<ConfirmerDestinataire>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

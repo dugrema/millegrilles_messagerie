@@ -346,254 +346,256 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
     debug!("transaction_recevoir Consommer transaction : {:?}", &transaction);
     let uuid_transaction = transaction.get_uuid_transaction().to_owned();
 
-    let message_recevoir: DocumentRecevoirPost = match transaction.clone().convertir() {
-        Ok(t) => t,
-        Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
-    };
-
-    let mut message_recevoir_serialise = match MessageSerialise::from_parsed(message_recevoir.message) {
-        Ok(m) => Ok(m),
-        Err(e) => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise : {:?}", e))
-    }?;
-
-    let message_id = message_recevoir_serialise.parsed.id.clone();
-
-    let message_local = match message_recevoir_serialise.parsed.origine.as_ref() {
-        Some(inner) => inner.as_str() == middleware.idmg(),
-        None => true
-    };
-
-    // Charger certificat dans le message pour validation
-    {
-        let fingerprint = message_recevoir_serialise.parsed.pubkey.as_str();
-        match middleware.get_certificat(fingerprint).await {
-            Some(certificat) => {
-                message_recevoir_serialise.certificat = Some(certificat);
-            },
-            None => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise, certificat introuvable : {}", fingerprint))?
-        }
-
-        let resultat = match middleware.verifier_message(&mut message_recevoir_serialise, None) {
-            Ok(inner) => inner,
-            Err(e) => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise : {:?}", e))?
-        };
-        match resultat.valide() {
-            true => debug!("transactions.transaction_recevoir Message valide (OK)"),
-            false => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise, echec validation : {:?}", resultat))?
-        }
-    };
-
-    // Conserver message pour chaque destinataires locaux
-    // let message_chiffre = message_enveloppe.message_chiffre;
-    // let hachage_bytes = message_enveloppe.hachage_bytes;
-    // let fingerprint_usager = message_enveloppe.fingerprint_certificat;
-    // let attachments = message_enveloppe.attachments;
-
-    // // let destinataires = match message_recevoir.destinataires_user_id.as_ref() {
-    // //     Some(inner) => {
-    // //         if inner.len() > 0 {
-    // //             inner
-    // //         } else {
-    // //             Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
-    // //         }
+    todo!("fix me");
+    // let message_recevoir: DocumentRecevoirPost = match transaction.clone().convertir() {
+    //     Ok(t) => t,
+    //     Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
+    // };
+    //
+    // let mut message_recevoir_serialise = match MessageSerialise::from_parsed(message_recevoir.message) {
+    //     Ok(m) => Ok(m),
+    //     Err(e) => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise : {:?}", e))
+    // }?;
+    //
+    // let message_id = message_recevoir_serialise.parsed.id.clone();
+    //
+    // let message_local = match message_recevoir_serialise.parsed.origine.as_ref() {
+    //     Some(inner) => inner.as_str() == middleware.idmg(),
+    //     None => true
+    // };
+    //
+    // // Charger certificat dans le message pour validation
+    // {
+    //     let fingerprint = message_recevoir_serialise.parsed.pubkey.as_str();
+    //     match middleware.get_certificat(fingerprint).await {
+    //         Some(certificat) => {
+    //             message_recevoir_serialise.certificat = Some(certificat);
+    //         },
+    //         None => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise, certificat introuvable : {}", fingerprint))?
+    //     }
+    //
+    //     let resultat = match middleware.verifier_message(&mut message_recevoir_serialise, None) {
+    //         Ok(inner) => inner,
+    //         Err(e) => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise : {:?}", e))?
+    //     };
+    //     match resultat.valide() {
+    //         true => debug!("transactions.transaction_recevoir Message valide (OK)"),
+    //         false => Err(format!("transactions.transaction_recevoir Erreur mapping message serialise, echec validation : {:?}", resultat))?
+    //     }
+    // };
+    //
+    // // Conserver message pour chaque destinataires locaux
+    // // let message_chiffre = message_enveloppe.message_chiffre;
+    // // let hachage_bytes = message_enveloppe.hachage_bytes;
+    // // let fingerprint_usager = message_enveloppe.fingerprint_certificat;
+    // // let attachments = message_enveloppe.attachments;
+    //
+    // // // let destinataires = match message_recevoir.destinataires_user_id.as_ref() {
+    // // //     Some(inner) => {
+    // // //         if inner.len() > 0 {
+    // // //             inner
+    // // //         } else {
+    // // //             Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
+    // // //         }
+    // // //     },
+    // // //     None => Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id"))?
+    // // // };
+    // //
+    // // // Retirer la part serveur du destinataire
+    // // // let mut destinataires_resultat = HashMap::new();
+    // // // let (destinataires_nomusager, destinataires_adresses) = {
+    // // //     let mut destinataires = Vec::new();
+    // // //     let mut destinataires_adresses = HashMap::new();
+    // // //     for adresse in &message_recevoir.destinataires {
+    // // //         match AdresseMessagerie::new(adresse.as_str()) {
+    // // //             Ok(a) => {
+    // // //                 destinataires_adresses.insert(a.user.clone(), adresse.to_owned());
+    // // //                 destinataires_resultat.insert(adresse.to_owned(), 404);  // Defaut usager inconnu
+    // // //                 destinataires.push(a.user);
+    // // //             },
+    // // //             Err(e) => {
+    // // //                 // Verifier si c'est un nom d'usager interne
+    // // //
+    // // //                 info!("Erreur parsing adresse {}, on l'ignore", adresse)
+    // // //             }
+    // // //         }
+    // // //     }
+    // // //     (destinataires, destinataires_adresses)
+    // // // };
+    //
+    // // Resolve destinataires nom_usager => user_id
+    // let destinataires = message_recevoir.destinataires_user_id;
+    // if destinataires.len() == 0 {
+    //     Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
+    // }
+    //
+    // // // let reponse_mappee: ReponseUseridParNomUsager = {
+    // // //     let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
+    // // //         .exchanges(vec![Securite::L4Secure])
+    // // //         .build();
+    // // //     let requete = json!({"noms_usagers": destinataires_nomusager});
+    // // //     debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
+    // // //     let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
+    // // //     debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
+    // // //     match reponse {
+    // // //         TypeMessage::Valide(m) => {
+    // // //             match m.message.parsed.map_contenu(None) {
+    // // //                 Ok(m) => m,
+    // // //                 Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
+    // // //             }
+    // // //         },
+    // // //         _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
+    // // //     }
+    // // // };
+    //
+    // let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    //
+    // // let certificat_usager = middleware.get_certificat(fingerprint_usager.as_str()).await;
+    // // let certificat_usager_pem: Vec<String> = match certificat_usager {
+    // //     Some(c) => {
+    // //         let fp_certs = c.get_pem_vec();
+    // //         fp_certs.into_iter().map(|c| c.pem).collect()
     // //     },
-    // //     None => Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id"))?
+    // //     None => Err(format!("transactions.transaction_recevoir Erreur insertion message {}, certificat {} introuvable", uuid_transaction, fingerprint_usager))?
     // // };
     //
-    // // Retirer la part serveur du destinataire
-    // // let mut destinataires_resultat = HashMap::new();
-    // // let (destinataires_nomusager, destinataires_adresses) = {
-    // //     let mut destinataires = Vec::new();
-    // //     let mut destinataires_adresses = HashMap::new();
-    // //     for adresse in &message_recevoir.destinataires {
-    // //         match AdresseMessagerie::new(adresse.as_str()) {
-    // //             Ok(a) => {
-    // //                 destinataires_adresses.insert(a.user.clone(), adresse.to_owned());
-    // //                 destinataires_resultat.insert(adresse.to_owned(), 404);  // Defaut usager inconnu
-    // //                 destinataires.push(a.user);
-    // //             },
-    // //             Err(e) => {
-    // //                 // Verifier si c'est un nom d'usager interne
-    // //
-    // //                 info!("Erreur parsing adresse {}, on l'ignore", adresse)
-    // //             }
-    // //         }
-    // //     }
-    // //     (destinataires, destinataires_adresses)
-    // // };
-
-    // Resolve destinataires nom_usager => user_id
-    let destinataires = message_recevoir.destinataires_user_id;
-    if destinataires.len() == 0 {
-        Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
-    }
-
-    // // let reponse_mappee: ReponseUseridParNomUsager = {
-    // //     let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
-    // //         .exchanges(vec![Securite::L4Secure])
-    // //         .build();
-    // //     let requete = json!({"noms_usagers": destinataires_nomusager});
-    // //     debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
-    // //     let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
-    // //     debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
-    // //     match reponse {
-    // //         TypeMessage::Valide(m) => {
-    // //             match m.message.parsed.map_contenu(None) {
-    // //                 Ok(m) => m,
-    // //                 Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
-    // //             }
-    // //         },
-    // //         _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
-    // //     }
-    // // };
-
-    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-
-    // let certificat_usager = middleware.get_certificat(fingerprint_usager.as_str()).await;
-    // let certificat_usager_pem: Vec<String> = match certificat_usager {
-    //     Some(c) => {
-    //         let fp_certs = c.get_pem_vec();
-    //         fp_certs.into_iter().map(|c| c.pem).collect()
+    // let attachements_recus = match message_recevoir.fuuids.as_ref() {
+    //     // Si on a des attachments et le message est local : true.
+    //     // Sinon aucuns attachments => true, au moins 1 => false
+    //     Some(a) => message_local || a.is_empty(),
+    //     None => true
+    // };
+    //
+    // let map_attachements = match message_recevoir.fuuids.as_ref() {
+    //     Some(a) => {
+    //         let mut map_attachements = HashMap::new();
+    //         for fuuid in a {
+    //             // Si message local, on marque recu. Sinon on met false.
+    //             map_attachements.insert(fuuid.to_owned(), message_local);
+    //         }
+    //         Some(map_attachements)
     //     },
-    //     None => Err(format!("transactions.transaction_recevoir Erreur insertion message {}, certificat {} introuvable", uuid_transaction, fingerprint_usager))?
+    //     None => None
     // };
-
-    let attachements_recus = match message_recevoir.fuuids.as_ref() {
-        // Si on a des attachments et le message est local : true.
-        // Sinon aucuns attachments => true, au moins 1 => false
-        Some(a) => message_local || a.is_empty(),
-        None => true
-    };
-
-    let map_attachements = match message_recevoir.fuuids.as_ref() {
-        Some(a) => {
-            let mut map_attachements = HashMap::new();
-            for fuuid in a {
-                // Si message local, on marque recu. Sinon on met false.
-                map_attachements.insert(fuuid.to_owned(), message_local);
-            }
-            Some(map_attachements)
-        },
-        None => None
-    };
-
-    let mut destinataires_resultat = HashMap::new();
-    let now: Bson = DateEpochSeconds::now().into();
-    // let message_incoming: MessageIncoming = match message_recevoir_serialise.parsed.map_contenu() {
-    //     Ok(inner) => inner,
-    //     Err(e) => Err(format!("transactions.transaction_recevoir Erreur map vers MessageIncoming : {:?}", e))?
-    // };
-    for d in destinataires.iter() {
-        match d.user_id.as_ref() {
-            Some(u) => {
-                // Sauvegarder message pour l'usager
-                debug!("transaction_recevoir Sauvegarder message pour usager : {}", u);
-
-                let message_document = DocumentIncoming {
-                    message: message_recevoir_serialise.parsed.clone(),
-                    user_id: u.to_owned(),
-                    supprime: false,
-                    lu: false,
-                    date_reception: DateEpochSeconds::now(),
-                    date_ouverture: None,
-                    fichiers: map_attachements.clone(),
-                    fichiers_completes: attachements_recus,
-                };
-
-                {
-                    let message_bson = match convertir_to_bson(&message_document) {
-                        Ok(inner) => inner,
-                        Err(e) => Err(format!("transactions.transaction_recevoir Erreur message {}, echec conversion en bson : {:?}", uuid_transaction, e))?
-                    };
-
-                    debug!("transaction_recevoir Inserer message {:?}", message_bson);
-                    match collection.insert_one(message_bson, None).await {
-                        Ok(_r) => {
-                            // Marquer usager comme trouve et traite
-                            if let Some(adresse_usager) = d.adresse.as_ref() {
-                                destinataires_resultat.insert(adresse_usager.to_owned(), 201);  // Message cree pour usager
-                            }
-                        },
-                        Err(e) => {
-                            let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
-                            if erreur_duplication {
-                                warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", message_document);
-                                if let Some(adresse_usager) = d.adresse.as_ref() {
-                                    destinataires_resultat.insert(adresse_usager.to_owned(), 200);  // Message deja traite
-                                }
-                                return middleware.reponse_ok();
-                            } else {
-                                if let Some(adresse_usager) = d.adresse.as_ref() {
-                                    destinataires_resultat.insert(adresse_usager.to_owned(), 500);  // Erreur de traitement
-                                }
-                                Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
-                            }
-                        }
-                    }
-                }
-
-                // Evenement de nouveau message pour front-end, notifications
-                //if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
-                let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
-                    .exchanges(vec![L2Prive])
-                    .partition(u)
-                    .build();
-
-                match middleware.get_certificat(message_recevoir_serialise.parsed.pubkey.as_str()).await {
-                    Some(inner) => {
-                        let mut evenement = MessageIncomingClient::from(message_document);
-                        evenement.certificat = Some(inner.get_pem_vec_extracted());
-                        middleware.emettre_evenement(routage, &evenement).await?;
-                    },
-                    None => {
-                        error!("transasctions.transaction_recevoir Erreur get_certificat {} du message {} pour emettre_evenement",
-                            message_recevoir_serialise.parsed.pubkey, message_recevoir_serialise.parsed.id);
-                    }
-                }
-            },
-            None => {
-                if let Some(adresse_usager) = d.adresse.as_ref() {
-                    destinataires_resultat.insert(adresse_usager.to_owned(), 404);  // Usager inconnu
-                }
-            }
-        }
-    }
-
-    if message_local {
-        // Marquer le message comme traiter dans "outgoing local"
-        let destinataires: Vec<ConfirmerDestinataire> = destinataires_resultat.iter().map(|(adresse, code)|{
-            ConfirmerDestinataire {code: code.to_owned(), destinataire: adresse.to_owned()}
-        }).collect();
-        marquer_outgoing_resultat(
-            middleware,
-            message_id.as_str(),
-            middleware.idmg(),
-            Some(&destinataires),
-            true
-        ).await?;
-    }
-
-    // if ! attachments_recus {
-    //     if let Some(a) = attachments.as_ref() {
-    //         debug!("transaction_recevoir Emettre une verification aupres de fichiers pour existance de {:?}", attachments);
-    //         let commande = CommandeVerifierExistanceFuuidsMessage { uuid_message: uuid_message.clone(), fuuids: a.to_owned() };
-    //         let routage = RoutageMessageAction::builder(DOMAINE_NOM, "fuuidVerifierExistance")
-    //             .exchanges(vec![L4Secure])
-    //             .build();
-    //         middleware.transmettre_commande(routage, &commande, false).await?;
+    //
+    // let mut destinataires_resultat = HashMap::new();
+    // let now: Bson = DateEpochSeconds::now().into();
+    // // let message_incoming: MessageIncoming = match message_recevoir_serialise.parsed.map_contenu() {
+    // //     Ok(inner) => inner,
+    // //     Err(e) => Err(format!("transactions.transaction_recevoir Erreur map vers MessageIncoming : {:?}", e))?
+    // // };
+    // for d in destinataires.iter() {
+    //     match d.user_id.as_ref() {
+    //         Some(u) => {
+    //             // Sauvegarder message pour l'usager
+    //             debug!("transaction_recevoir Sauvegarder message pour usager : {}", u);
+    //
+    //             let message_document = DocumentIncoming {
+    //                 message: message_recevoir_serialise.parsed.clone(),
+    //                 user_id: u.to_owned(),
+    //                 supprime: false,
+    //                 lu: false,
+    //                 date_reception: DateEpochSeconds::now(),
+    //                 date_ouverture: None,
+    //                 fichiers: map_attachements.clone(),
+    //                 fichiers_completes: attachements_recus,
+    //             };
+    //
+    //             {
+    //                 let message_bson = match convertir_to_bson(&message_document) {
+    //                     Ok(inner) => inner,
+    //                     Err(e) => Err(format!("transactions.transaction_recevoir Erreur message {}, echec conversion en bson : {:?}", uuid_transaction, e))?
+    //                 };
+    //
+    //                 debug!("transaction_recevoir Inserer message {:?}", message_bson);
+    //                 match collection.insert_one(message_bson, None).await {
+    //                     Ok(_r) => {
+    //                         // Marquer usager comme trouve et traite
+    //                         if let Some(adresse_usager) = d.adresse.as_ref() {
+    //                             destinataires_resultat.insert(adresse_usager.to_owned(), 201);  // Message cree pour usager
+    //                         }
+    //                     },
+    //                     Err(e) => {
+    //                         let erreur_duplication = verifier_erreur_duplication_mongo(&*e.kind);
+    //                         if erreur_duplication {
+    //                             warn!("transaction_recevoir Duplication message externe recu, on l'ignore : {:?}", message_document);
+    //                             if let Some(adresse_usager) = d.adresse.as_ref() {
+    //                                 destinataires_resultat.insert(adresse_usager.to_owned(), 200);  // Message deja traite
+    //                             }
+    //                             return middleware.reponse_ok();
+    //                         } else {
+    //                             if let Some(adresse_usager) = d.adresse.as_ref() {
+    //                                 destinataires_resultat.insert(adresse_usager.to_owned(), 500);  // Erreur de traitement
+    //                             }
+    //                             Err(format!("transactions.transaction_recevoir Erreur insertion message {} pour usager {} : {:?}", uuid_transaction, u, e))?
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //
+    //             // Evenement de nouveau message pour front-end, notifications
+    //             //if let Ok(m) = convertir_bson_deserializable::<MessageIncoming>(doc_user_reception) {
+    //             let routage = RoutageMessageAction::builder(DOMAINE_NOM, EVENEMENT_NOUVEAU_MESSAGE)
+    //                 .exchanges(vec![L2Prive])
+    //                 .partition(u)
+    //                 .build();
+    //
+    //             match middleware.get_certificat(message_recevoir_serialise.parsed.pubkey.as_str()).await {
+    //                 Some(inner) => {
+    //                     let mut evenement = MessageIncomingClient::from(message_document);
+    //                     evenement.certificat = Some(inner.get_pem_vec_extracted());
+    //                     middleware.emettre_evenement(routage, &evenement).await?;
+    //                 },
+    //                 None => {
+    //                     error!("transasctions.transaction_recevoir Erreur get_certificat {} du message {} pour emettre_evenement",
+    //                         message_recevoir_serialise.parsed.pubkey, message_recevoir_serialise.parsed.id);
+    //                 }
+    //             }
+    //         },
+    //         None => {
+    //             if let Some(adresse_usager) = d.adresse.as_ref() {
+    //                 destinataires_resultat.insert(adresse_usager.to_owned(), 404);  // Usager inconnu
+    //             }
+    //         }
     //     }
     // }
-
-    if let Err(e) = emettre_notifications(
-        middleware, &destinataires, message_id.as_str()).await {
-        warn!("transaction_recevoir Erreur emission notifications : {:?}", e);
-    }
-
-    let reponse = json!({"ok": true , "usagers": &destinataires_resultat});
-    match middleware.formatter_reponse(&reponse, None) {
-        Ok(r) => Ok(Some(r)),
-        Err(e) => Err(format!("transactions.transaction_recevoir Erreur formattage reponse : {:?}", e))?
-    }
+    //
+    // if message_local {
+    //     // Marquer le message comme traiter dans "outgoing local"
+    //     let destinataires: Vec<ConfirmerDestinataire> = destinataires_resultat.iter().map(|(adresse, code)|{
+    //         ConfirmerDestinataire {code: code.to_owned(), destinataire: adresse.to_owned()}
+    //     }).collect();
+    //     marquer_outgoing_resultat(
+    //         middleware,
+    //         message_id.as_str(),
+    //         middleware.idmg(),
+    //         Some(&destinataires),
+    //         true,
+    //
+    //     ).await?;
+    // }
+    //
+    // // if ! attachments_recus {
+    // //     if let Some(a) = attachments.as_ref() {
+    // //         debug!("transaction_recevoir Emettre une verification aupres de fichiers pour existance de {:?}", attachments);
+    // //         let commande = CommandeVerifierExistanceFuuidsMessage { uuid_message: uuid_message.clone(), fuuids: a.to_owned() };
+    // //         let routage = RoutageMessageAction::builder(DOMAINE_NOM, "fuuidVerifierExistance")
+    // //             .exchanges(vec![L4Secure])
+    // //             .build();
+    // //         middleware.transmettre_commande(routage, &commande, false).await?;
+    // //     }
+    // // }
+    //
+    // if let Err(e) = emettre_notifications(
+    //     middleware, &destinataires, message_id.as_str()).await {
+    //     warn!("transaction_recevoir Erreur emission notifications : {:?}", e);
+    // }
+    //
+    // let reponse = json!({"ok": true , "usagers": &destinataires_resultat});
+    // match middleware.formatter_reponse(&reponse, None) {
+    //     Ok(r) => Ok(Some(r)),
+    //     Err(e) => Err(format!("transactions.transaction_recevoir Erreur formattage reponse : {:?}", e))?
+    // }
 }
 
 pub async fn emettre_notifications<M>(middleware: &M, usagers: &Vec<DestinataireInfo>, uuid_message: &str)
@@ -1070,27 +1072,28 @@ async fn confirmer_transmission_millegrille<M, T>(gestionnaire: &GestionnaireMes
         Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur conversion transaction : {:?}", e))?
     };
 
-    let filtre = doc!{
-        CHAMP_UUID_MESSAGE: &transaction_mappee.message_id,
-        "user_id": &transaction_mappee.user_id,
-    };
-    let mut set_ops = doc!{};
-    for info_destinataire in &transaction_mappee.destinataires {
-        // Remplacer "." par "," pour supporter acces cles MongoDB
-        let destinataire = info_destinataire.destinataire.replace(".", ",");
-        set_ops.insert(format!("destinataires.{}", destinataire), &info_destinataire.code);
-    }
-    let ops = doc! {
-        "$set": set_ops,
-        "$currentDate": {CHAMP_MODIFICATION: true},
-    };
-    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
-    match collection.update_one(filtre, ops, None).await {
-        Ok(_d) => (),
-        Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur sauvegarde etat outgoing"))?
-    }
-
-    middleware.reponse_ok()
+    todo!("fix me");
+    // let filtre = doc!{
+    //     CHAMP_UUID_MESSAGE: &transaction_mappee.message_id,
+    //     "user_id": &transaction_mappee.user_id,
+    // };
+    // let mut set_ops = doc!{};
+    // for info_destinataire in &transaction_mappee.destinataires {
+    //     // Remplacer "." par "," pour supporter acces cles MongoDB
+    //     let destinataire = info_destinataire.destinataire.replace(".", ",");
+    //     set_ops.insert(format!("destinataires.{}", destinataire), &info_destinataire.code);
+    // }
+    // let ops = doc! {
+    //     "$set": set_ops,
+    //     "$currentDate": {CHAMP_MODIFICATION: true},
+    // };
+    // let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+    // match collection.update_one(filtre, ops, None).await {
+    //     Ok(_d) => (),
+    //     Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur sauvegarde etat outgoing"))?
+    // }
+    //
+    // middleware.reponse_ok()
 }
 
 async fn conserver_configuration_notifications<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
