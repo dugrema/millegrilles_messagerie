@@ -1602,7 +1602,7 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
                 hachage_bytes: hachage_bytes.to_owned(),
                 domaine: DOMAINE_NOM.into(),
                 identificateurs_document,
-                signature_identite: "".to_string(),
+                // signature_identite: "".to_string(),
                 cles,
                 format: FormatChiffrage::try_from(inner.format.as_str())?,
                 iv: None,
