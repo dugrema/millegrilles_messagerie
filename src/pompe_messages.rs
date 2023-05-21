@@ -628,9 +628,80 @@ async fn marquer_idmg_process_code<M>(middleware: &M, message_id: &str, idmg: &s
     Ok(Some(doc_mappe))
 }
 
+pub async fn marquer_destinataires_process<M>(
+    middleware: &M, message_id: &str, idmg: &str, destinataires: &Vec<ConfirmerDestinataire>
+) -> Result<(), String>
+    where M: ValidateurX509 + MongoDao + GenerateurMessages
+{
+    // Mapper destinataires par code
+    let map_codes_destinataires = {
+        let mut map_codes_destinataires: HashMap<i32, Vec<&String>> = HashMap::new();
+        for destinataire in destinataires {
+            let code = destinataire.code;
+            let destinataire_adresse = &destinataire.destinataire;
+            match map_codes_destinataires.get_mut(&code) {
+                Some(mut v) => v.push(destinataire_adresse),
+                None => {
+                    let mut v = Vec::new();
+                    v.push(destinataire_adresse);
+                    map_codes_destinataires.insert(code, v);
+                }
+            }
+        }
+        map_codes_destinataires
+    };
+
+    let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
+    let filtre_outgoing = doc! { CHAMP_UUID_MESSAGE: message_id };
+
+    for (result_code, destinataires) in map_codes_destinataires.into_iter() {
+        let array_filters = vec![
+            doc! {"dest.destinataire": {"$in": destinataires }}
+        ];
+        let options = UpdateOptions::builder().array_filters(array_filters.clone()).build();
+
+        let mut processed = match result_code {
+            200 | 404 => true,
+            _ => false
+        };
+
+        let mut set_ops = doc! {
+            format!("idmgs_mapping.{}.last_result_code", &idmg): result_code,
+            "destinataires.$[dest].processed": processed,
+            "destinataires.$[dest].result": result_code,
+        };
+
+        if !processed {
+            let next_push = (Utc::now() + Duration::minutes(5)).timestamp();
+            set_ops.insert(format!("idmgs_mapping.{}.next_push_time", idmg), next_push);
+        }
+
+        let mut ops = doc! {
+            "$set": set_ops,
+            "$currentDate": {"last_processed": true}
+        };
+
+        if processed {
+            ops.insert("$pull", doc! {"idmgs_unprocessed": &idmg});
+            ops.insert("$unset", doc! { format!("idmgs_mapping.{}.next_push_time", idmg): true });
+        }
+
+        debug!("marquer_outgoing_resultat Filtre maj outgoing : {:?}, ops: {:?}, array_filters : {:?}", filtre_outgoing, ops, array_filters);
+        match collection_outgoing_processing.update_one(filtre_outgoing.clone(), ops, Some(options)).await {
+            Ok(resultat) => {
+                debug!("marquer_outgoing_resultat Resultat marquer idmg {} comme pousse pour message {} : {:?}", idmg, message_id, resultat);
+                Ok(resultat)
+            },
+            Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur sauvegarde transaction, conversion : {:?}", e))
+        }?;
+    }
+
+    Ok(())
+}
+
 pub async fn marquer_outgoing_resultat<M>(
     middleware: &M, message_id: &str, idmg: &str,
-    destinataires: Option<&Vec<ConfirmerDestinataire>>, processed: bool, result_code: Option<u32>
+    destinataires: Option<Vec<ConfirmerDestinataire>>, processed: bool, result_code: Option<u32>
 ) -> Result<(), String>
     where M: ValidateurX509 + MongoDao + GenerateurMessages
 {
@@ -662,10 +733,16 @@ pub async fn marquer_outgoing_resultat<M>(
     let collection_outgoing_processing = middleware.get_collection(NOM_COLLECTION_OUTGOING_PROCESSING)?;
     let filtre_outgoing = doc! { CHAMP_UUID_MESSAGE: message_id };
 
+    // Marquer idmg prcess status
     let doc_outgoing = match marquer_idmg_process_code(middleware, message_id, idmg, processed, result_code).await {
         Ok(inner) => inner,
         Err(e) => Err(format!("pompe_messages.marquer_outgoing_resultat Erreur marquer_idmg_process_code {:?}", e))?
     };
+
+    // Marquer destinataires process status
+    if let Some(inner) = destinataires.as_ref() {
+        marquer_destinataires_process(middleware, message_id, idmg, inner).await?;
+    }
 
     // let doc_outgoing = {
     //     let mut doc_outgoing = None;
@@ -732,7 +809,7 @@ pub async fn marquer_outgoing_resultat<M>(
                 message_id: message_id.to_owned(),
                 user_id: user_id.clone(),
                 idmg: idmg.to_owned(),
-                destinataires: None,  // map_destinataires_code.clone(),
+                destinataires,  // map_destinataires_code.clone(),
             };
             let routage = RoutageMessageAction::builder(DOMAINE_NOM, TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE)
                 .exchanges(vec![Securite::L4Secure])

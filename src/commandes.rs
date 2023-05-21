@@ -499,7 +499,22 @@ async fn commande_confirmer_transmission<M>(middleware: &M, m: MessageValideActi
         _ => false
     };
 
-    marquer_outgoing_resultat(middleware, message_id, idmg, None, processed, Some(result_code)).await?;
+    let vec_destinataires = match commande.adresses {
+        Some(inner) => {
+            let mut vec_destinataires = Vec::new();
+            for (k,v) in inner.into_iter() {
+                let dest = ConfirmerDestinataire {
+                    code: v as i32,
+                    destinataire: k,
+                };
+                vec_destinataires.push(dest);
+            }
+            Some(vec_destinataires)
+        },
+        None => None
+    };
+
+    marquer_outgoing_resultat(middleware, message_id, idmg, vec_destinataires, processed, Some(result_code)).await?;
 
     Ok(None)
 }

@@ -573,11 +573,12 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         let destinataires: Vec<ConfirmerDestinataire> = destinataires_resultat.iter().map(|(adresse, code)|{
             ConfirmerDestinataire {code: code.to_owned(), destinataire: adresse.to_owned()}
         }).collect();
+
         marquer_outgoing_resultat(
             middleware,
             message_id.as_str(),
             middleware.idmg(),
-            Some(&destinataires),
+            Some(destinataires),
             true,
             Some(201)
         ).await?;
@@ -1080,28 +1081,38 @@ async fn confirmer_transmission_millegrille<M, T>(gestionnaire: &GestionnaireMes
         Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur conversion transaction : {:?}", e))?
     };
 
-    todo!("fix me");
-    // let filtre = doc!{
-    //     CHAMP_UUID_MESSAGE: &transaction_mappee.message_id,
-    //     "user_id": &transaction_mappee.user_id,
-    // };
-    // let mut set_ops = doc!{};
-    // for info_destinataire in &transaction_mappee.destinataires {
-    //     // Remplacer "." par "," pour supporter acces cles MongoDB
-    //     let destinataire = info_destinataire.destinataire.replace(".", ",");
-    //     set_ops.insert(format!("destinataires.{}", destinataire), &info_destinataire.code);
-    // }
-    // let ops = doc! {
-    //     "$set": set_ops,
-    //     "$currentDate": {CHAMP_MODIFICATION: true},
-    // };
-    // let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
-    // match collection.update_one(filtre, ops, None).await {
-    //     Ok(_d) => (),
-    //     Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur sauvegarde etat outgoing"))?
-    // }
-    //
-    // middleware.reponse_ok()
+    let filtre = doc!{
+        CHAMP_UUID_MESSAGE: &transaction_mappee.message_id,
+        "user_id": &transaction_mappee.user_id,
+    };
+    let mut set_ops = doc!{};
+
+    match transaction_mappee.destinataires.as_ref() {
+        Some(inner) => {
+            for info_destinataire in inner {
+                // Remplacer "." par "," pour supporter acces cles MongoDB
+                let destinataire = info_destinataire.destinataire.replace(".", ",");
+                set_ops.insert(format!("destinataires.{}", destinataire), &info_destinataire.code);
+            }
+        },
+        None => {
+            // rien a faire
+            return middleware.reponse_ok()
+        }
+    }
+
+    let ops = doc! {
+        "$set": set_ops,
+        "$currentDate": {CHAMP_MODIFICATION: true},
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_OUTGOING)?;
+    match collection.update_one(filtre, ops, None).await {
+        Ok(_d) => (),
+        Err(e) => Err(format!("transactions.confirmer_transmission_millegrille Erreur sauvegarde etat outgoing"))?
+    }
+
+    middleware.reponse_ok()
 }
 
 async fn conserver_configuration_notifications<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
