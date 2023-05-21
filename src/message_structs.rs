@@ -866,4 +866,5 @@ pub struct CommandeRecevoir {
 pub struct CommandeTransfertPoster {
     pub to: Vec<String>,
     pub files: Option<Vec<String>>,
+    pub message_key: String,
 }

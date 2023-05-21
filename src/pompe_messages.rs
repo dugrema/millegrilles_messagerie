@@ -972,7 +972,8 @@ async fn rechiffrer_cle_pour_fiche<M>(middleware: &M, cle_secrete: &CleSecrete, 
 async fn generer_attachement_transfert<M>(
     middleware: &M, message: &DocumentOutgoing,
     processing: &DocOutgointProcessing,
-    fiche: &FicheMillegrilleApplication
+    fiche: &FicheMillegrilleApplication,
+    cle_secrete: &CleSecrete
 )
     -> Result<MessageMilleGrille, Box<dyn Error>>
     where M: ValidateurX509 + GenerateurMessages + MongoDao + ChiffrageFactoryTrait
@@ -995,6 +996,7 @@ async fn generer_attachement_transfert<M>(
     let commande_transfert = CommandeTransfertPoster {
         to: destinataires,
         files: message.fuuids.clone(),
+        message_key: multibase::encode(Base::Base64, &cle_secrete.0[..])
     };
 
     debug!("pompe_messages.generer_attachement_transfert Commande transfert a chiffrer : {:?}", commande_transfert);
@@ -1075,7 +1077,7 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
         let cles_rechiffrees = rechiffrer_cle_pour_fiche(middleware, &cle_secrete_message, &fiche).await?;
         debug!("pousser_message_vers_tiers Cles rechiffrees pour {} : {:?}", fiche.idmg, cles_rechiffrees);
         let attachement_transfert = generer_attachement_transfert(
-            middleware, &commande_poster, &message, &fiche).await?;
+            middleware, &commande_poster, &message, &fiche, &cle_secrete_message).await?;
 
         // Formatter commande avec attachements pour fiche courante
         let mut message = commande_poster.message.clone();
