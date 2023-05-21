@@ -181,7 +181,7 @@ pub struct DocumentRecevoirPost {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandeRecevoirPostExterne {
-    pub cles: HashMap<String, String>,
+    // pub cles: HashMap<String, String>,
     pub message: MessageMilleGrille,
     pub transfert: MessageMilleGrille,
 }
