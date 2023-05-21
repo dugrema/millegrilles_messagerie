@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::sync::Arc;
 
@@ -9,12 +9,13 @@ use millegrilles_common_rust::{multibase, serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{Bson, doc, Document};
 use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
-use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, MgsCipherKeys};
+use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, CleChiffrageHandler, CleSecrete, FormatChiffrage, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
+use millegrilles_common_rust::chiffrage_ed25519::dechiffrer_asymmetrique_ed25519;
 use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
 use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, MessageReponse, TransactionRetirerSubscriptionWebpush};
 use millegrilles_common_rust::constantes::*;
-use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMilleGrille, MessageSerialise};
+use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageInterMillegrille, MessageMilleGrille, MessageSerialise};
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction, sauvegarde_attachement_cle};
 use millegrilles_common_rust::middleware::{ChiffrageFactoryTrait, sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao, verifier_erreur_duplication_mongo};
@@ -32,7 +33,7 @@ use millegrilles_common_rust::openssl::bn::BigNumContext;
 use millegrilles_common_rust::openssl::nid::Nid;
 use millegrilles_common_rust::openssl::ec::{EcGroup, EcKey, PointConversionForm};
 use millegrilles_common_rust::dechiffrage::dechiffrer_documents;
-use millegrilles_common_rust::messages_generiques::ConfirmationTransmission;
+use millegrilles_common_rust::messages_generiques::{CommandeCleRechiffree, CommandeDechiffrerCle, ConfirmationTransmission};
 use millegrilles_common_rust::serde_json::Value;
 use web_push::{ContentEncoding, PartialVapidSignatureBuilder, SubscriptionInfo, VapidSignatureBuilder, WebPushClient, WebPushMessageBuilder};
 
@@ -1524,31 +1525,155 @@ async fn recevoir_notification<M>(
 
 async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage + CleChiffrageHandler
 {
     debug!("commandes.commande_recevoir_externe Consommer commande : {:?}", & m.message);
     let mut commande: CommandeRecevoirPostExterne = m.message.get_msg().map_contenu()?;
     debug!("commandes.commande_recevoir_externe Commande nouvelle versions parsed : {:?}", commande);
 
-    // Valider messages
     let options = ValidationOptions::new(true, false, true);
-
     let mut enveloppe_message = MessageSerialise::from_parsed(commande.message)?;
-    let validation_message = enveloppe_message.valider(middleware, Some(&options)).await?;
-    if validation_message.valide() == false {
-        warn!("commande_recevoir_externe Message inter-millegrille invalide : {:?}", validation_message);
-        if validation_message.certificat_valide == false {
-            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Certificat message invalide"}), None)?))
+    let mut enveloppe_transfert = MessageSerialise::from_parsed(commande.transfert)?;
+    let enveloppe_cles = commande.cles;
+
+    // Valider messages
+    {
+        let validation_message = enveloppe_message.valider(middleware, Some(&options)).await?;
+        if validation_message.valide() == false {
+            warn!("commande_recevoir_externe Message inter-millegrille invalide : {:?}", validation_message);
+            if validation_message.certificat_valide == false {
+                return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Certificat message invalide"}), None)?))
+            }
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Hachage/Signature message invalide"}), None)?))
         }
-        return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Hachage/Signature message invalide"}), None)?))
+
+        let validation_transfert = enveloppe_transfert.valider(middleware, Some(&options)).await?;
+        if validation_transfert.valide() == false {
+            warn!("commande_recevoir_externe Message transfert invalide : {:?}", validation_transfert);
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message transfert invalide"}), None)?))
+        }
     }
 
-    let mut enveloppe_transfert = MessageSerialise::from_parsed(commande.transfert)?;
-    let validation_transfert = enveloppe_transfert.valider(middleware, Some(&options)).await?;
-    if validation_transfert.valide() == false {
-        warn!("commande_recevoir_externe Message transfert invalide : {:?}", validation_transfert);
-        return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message transfert invalide"}), None)?))
-    }
+    // Preparer commande/transaction sauvegarder cle - permet de valider le message
+    let commande_sauvegarder_cle = match enveloppe_message.parsed.dechiffrage {
+        Some(inner) => {
+            let hachage_bytes = match inner.hachage {
+                Some(inner) => inner,
+                None => {
+                    warn!("commande_recevoir_externe Message dechiffrage.hachage_bytes manquant");
+                    return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message dechiffrage.hachage_bytes manquant"}), None)?))
+                }
+            };
+
+            let mut identificateurs_document = HashMap::new();
+            identificateurs_document.insert("message".to_string(), "true".to_string());
+
+            CommandeSauvegarderCle {
+                hachage_bytes,
+                domaine: DOMAINE_NOM.into(),
+                identificateurs_document,
+                signature_identite: "".to_string(),
+                cles: enveloppe_cles,
+                format: FormatChiffrage::try_from(inner.format.as_str())?,
+                iv: None,
+                tag: None,
+                header: inner.header,
+                partition: None,
+                fingerprint_partitions: None,
+            }
+        },
+        None => {
+            warn!("commande_recevoir_externe Message sans information de dechiffrage");
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message sans information de dechiffrage"}), None)?))
+        }
+    };
+    debug!("Commande sauvegarder cles : {:?}", commande_sauvegarder_cle);
+
+    // Dechiffrer destinataires
+    let commande_transfert = match dechiffrer_cle_message(middleware, &enveloppe_transfert.parsed).await {
+        Ok(cle_secrete) => {
+            let transfert_inter = MessageInterMillegrille::try_from(enveloppe_transfert.parsed)?;
+            let contenu_dechiffre = transfert_inter.dechiffrer_avec_cle(middleware, cle_secrete)?;
+            let commande_transfert: CommandeTransfertPoster = serde_json::from_slice(&contenu_dechiffre.data_dechiffre[..])?;
+            commande_transfert
+        },
+        Err(e) => {
+            warn!("commande_recevoir_externe Message transfert erreur dechiffrage cles : {:?}", e);
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message transfert sans cles"}), None)?))
+        }
+    };
+
+    debug!("commande_recevoir_externe Commande transfert dechiffree : {:?}", commande_transfert);
+
+    // Faire correspondre les destinataires aux usagers locaux
+
+    // Sauvegarder cle du message
+
+
+    // Traiter transaction du message
+
 
     todo!("fix me");
+}
+
+async fn dechiffrer_cle_message<M>(middleware: &M, message: &MessageMilleGrille)
+    -> Result<CleSecrete, Box<dyn Error>>
+    where M: GenerateurMessages
+{
+    let enveloppe_privee = middleware.get_enveloppe_signature();
+    let fingerprint_ca = enveloppe_privee.enveloppe_ca.fingerprint.as_str();
+
+    let cles_transfert = match message.dechiffrage.as_ref() {
+        Some(inner) => match inner.cles.as_ref() {
+            Some(inner) => inner,
+            None => Err(format!("commande_recevoir_externe Message transfert sans cles de dechiffrage (1)"))?
+        },
+        None => Err(format!("commande_recevoir_externe Message transfert sans cles de dechiffrage (2)"))?
+    };
+
+    for (k, v) in cles_transfert {
+        if k.as_str() == fingerprint_ca {
+            continue;   // Skip, c'est la cle chiffree pour le CA
+        }
+
+        debug!("Tenter de dechiffrer cles de transfert : {}", k);
+        let commande = CommandeDechiffrerCle { cle: v.clone(), fingerprint: v.clone() };
+        let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_DECHIFFRER_CLE)
+            .exchanges(vec![Securite::L4Secure])
+            .partition(k)
+            .build();
+
+        match middleware.transmettre_commande(routage, &commande, true).await {
+            Ok(inner) => {
+                if let Some(TypeMessage::Valide(reponse)) = inner {
+                    debug!("Reponse cle dechiffree {:?}", reponse.message);
+                    match reponse.message.parsed.map_contenu::<CommandeCleRechiffree>() {
+                        Ok(inner) => {
+                            if let Some(cle_str) = inner.cle {
+                                let (_, cle_bytes) = multibase::decode(cle_str.as_str())?;
+                                let cle_secrete_recue = dechiffrer_asymmetrique_ed25519(
+                                    &cle_bytes[..], enveloppe_privee.cle_privee())?;
+
+                                // Cle recue et dechiffree avec succes
+                                return Ok(cle_secrete_recue);
+
+                            } else {
+                                info!("Erreur reception reponse dechiffre cle, aucune cle recue");
+                                continue;
+                            }
+                        },
+                        Err(e) => {
+                            info!("Erreur reception reponse dechiffre cle : {:?}", e);
+                            continue;
+                        }
+                    };
+                }
+            },
+            Err(e) => {
+                info!("Erreur reception reponse dechiffre cle : {:?}", e);
+            }
+        }
+    }
+
+    Err(format!("Cle non dechiffrable"))?
 }

@@ -861,3 +861,9 @@ pub struct CommandeRecevoir {
     // #[serde(rename="_cle", skip_serializing)]
     // pub cle: Option<MessageMilleGrille>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CommandeTransfertPoster {
+    pub to: Vec<String>,
+    pub files: Option<Vec<String>>,
+}

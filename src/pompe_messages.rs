@@ -992,10 +992,10 @@ async fn generer_attachement_transfert<M>(
         destinataires.into_iter().map(|d| d.destinataire).collect::<Vec<String>>()
     };
 
-    let commande_transfert = json!({
-        "to": destinataires,
-        "files": message.fuuids.clone(),
-    });
+    let commande_transfert = CommandeTransfertPoster {
+        to: destinataires,
+        files: message.fuuids.clone(),
+    };
 
     debug!("pompe_messages.generer_attachement_transfert Commande transfert a chiffrer : {:?}", commande_transfert);
 
