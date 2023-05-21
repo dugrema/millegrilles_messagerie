@@ -1540,7 +1540,7 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
     {
         let validation_message = enveloppe_message.valider(middleware, Some(&options)).await?;
         if validation_message.valide() == false {
-            warn!("commande_recevoir_externe Message inter-millegrille invalide : {:?}", validation_message);
+            error!("commande_recevoir_externe Message inter-millegrille invalide : {:?}", validation_message);
             if validation_message.certificat_valide == false {
                 return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Certificat message invalide"}), None)?))
             }
@@ -1549,18 +1549,18 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
 
         let validation_transfert = enveloppe_transfert.valider(middleware, Some(&options)).await?;
         if validation_transfert.valide() == false {
-            warn!("commande_recevoir_externe Message transfert invalide : {:?}", validation_transfert);
+            error!("commande_recevoir_externe Message transfert invalide : {:?}", validation_transfert);
             return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message transfert invalide"}), None)?))
         }
     }
 
     // Preparer commande/transaction sauvegarder cle - permet de valider le message
-    let commande_sauvegarder_cle = match enveloppe_message.parsed.dechiffrage {
+    let commande_sauvegarder_cle = match enveloppe_message.parsed.dechiffrage.as_ref() {
         Some(inner) => {
-            let hachage_bytes = match inner.hachage {
+            let hachage_bytes = match inner.hachage.as_ref() {
                 Some(inner) => inner,
                 None => {
-                    warn!("commande_recevoir_externe Message dechiffrage.hachage_bytes manquant");
+                    error!("commande_recevoir_externe Message dechiffrage.hachage_bytes manquant");
                     return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message dechiffrage.hachage_bytes manquant"}), None)?))
                 }
             };
@@ -1569,7 +1569,7 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
             identificateurs_document.insert("message".to_string(), "true".to_string());
 
             CommandeSauvegarderCle {
-                hachage_bytes,
+                hachage_bytes: hachage_bytes.to_owned(),
                 domaine: DOMAINE_NOM.into(),
                 identificateurs_document,
                 signature_identite: "".to_string(),
@@ -1577,13 +1577,13 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
                 format: FormatChiffrage::try_from(inner.format.as_str())?,
                 iv: None,
                 tag: None,
-                header: inner.header,
+                header: inner.header.clone(),
                 partition: None,
                 fingerprint_partitions: None,
             }
         },
         None => {
-            warn!("commande_recevoir_externe Message sans information de dechiffrage");
+            error!("commande_recevoir_externe Message sans information de dechiffrage");
             return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message sans information de dechiffrage"}), None)?))
         }
     };
@@ -1598,7 +1598,7 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
             commande_transfert
         },
         Err(e) => {
-            warn!("commande_recevoir_externe Message transfert erreur dechiffrage cles : {:?}", e);
+            error!("commande_recevoir_externe Message transfert erreur dechiffrage cles : {:?}", e);
             return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message transfert sans cles"}), None)?))
         }
     };
@@ -1606,14 +1606,46 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
     debug!("commande_recevoir_externe Commande transfert dechiffree : {:?}", commande_transfert);
 
     // Faire correspondre les destinataires aux usagers locaux
+    let mut destinataires_user_id = Vec::new();
+
+    if destinataires_user_id.is_empty() {
+        error!("commande_recevoir_externe Aucuns destinataires connus localement");
+        return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Aucuns destinataires connus"}), None)?))
+    }
 
     // Sauvegarder cle du message
+    let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+        .exchanges(vec![Securite::L4Secure])
+        .build();
+    match middleware.transmettre_commande(routage, &commande_sauvegarder_cle, true).await {
+        Ok(Some(TypeMessage::Valide(inner))) => {
+            let message_ok: MessageReponse = inner.message.parsed.map_contenu()?;
+            if let MessageReponse{ok: Some(true)} = message_ok {
+                debug!("commande_recevoir_externe Cle sauvegardee (OK)");
+            } else {
+                error!("commande_recevoir_externe Erreur sauvegarde cle (maitre des cles, reponse ok=false)");
+                return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Erreur maitre des cles"}), None)?))
+            }
+        },
+        Err(e) => {
+            error!("commande_recevoir_externe Erreur sauvegarde cle (maitre des cles) : {:?}", e);
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Erreur maitre des cles"}), None)?))
+        },
+        _ => {
+            error!("commande_recevoir_externe Erreur sauvegarde cle (maitre des cles)");
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Erreur maitre des cles"}), None)?))
+        }
+    }
 
+    // Sauvegarder et traiter transaction du message
+    let commande_post = DocumentRecevoirPost {
+        message: enveloppe_message.parsed,
+        destinataires_user_id,
+        fuuids: commande_transfert.files,
+    };
 
-    // Traiter transaction du message
-
-
-    todo!("fix me");
+    Ok(sauvegarder_traiter_transaction_serializable(
+        middleware, &commande_post, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?)
 }
 
 async fn dechiffrer_cle_message<M>(middleware: &M, message: &MessageMilleGrille)
