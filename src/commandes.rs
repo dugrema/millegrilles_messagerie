@@ -11,7 +11,7 @@ use millegrilles_common_rust::bson::{Bson, doc, Document};
 use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
 use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, CleChiffrageHandler, CleSecrete, FormatChiffrage, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
-use millegrilles_common_rust::chiffrage_ed25519::dechiffrer_asymmetrique_ed25519;
+use millegrilles_common_rust::chiffrage_ed25519::{chiffrer_asymmetrique_ed25519, dechiffrer_asymmetrique_ed25519};
 use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
 use millegrilles_common_rust::common_messages::{DataChiffre, DataDechiffre, MessageReponse, TransactionRetirerSubscriptionWebpush};
 use millegrilles_common_rust::constantes::*;
@@ -1539,7 +1539,7 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
     let options = ValidationOptions::new(true, false, true);
     let mut enveloppe_message = MessageSerialise::from_parsed(commande.message)?;
     let mut enveloppe_transfert = MessageSerialise::from_parsed(commande.transfert)?;
-    let enveloppe_cles = commande.cles;
+    // let enveloppe_cles = commande.cles;
 
     // Valider messages
     {
@@ -1559,42 +1559,7 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
         }
     }
 
-    // Preparer commande/transaction sauvegarder cle - permet de valider le message
-    let commande_sauvegarder_cle = match enveloppe_message.parsed.dechiffrage.as_ref() {
-        Some(inner) => {
-            let hachage_bytes = match inner.hachage.as_ref() {
-                Some(inner) => inner,
-                None => {
-                    error!("commande_recevoir_externe Message dechiffrage.hachage_bytes manquant");
-                    return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message dechiffrage.hachage_bytes manquant"}), None)?))
-                }
-            };
-
-            let mut identificateurs_document = HashMap::new();
-            identificateurs_document.insert("message".to_string(), "true".to_string());
-
-            CommandeSauvegarderCle {
-                hachage_bytes: hachage_bytes.to_owned(),
-                domaine: DOMAINE_NOM.into(),
-                identificateurs_document,
-                signature_identite: "".to_string(),
-                cles: enveloppe_cles,
-                format: FormatChiffrage::try_from(inner.format.as_str())?,
-                iv: None,
-                tag: None,
-                header: inner.header.clone(),
-                partition: None,
-                fingerprint_partitions: None,
-            }
-        },
-        None => {
-            error!("commande_recevoir_externe Message sans information de dechiffrage");
-            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message sans information de dechiffrage"}), None)?))
-        }
-    };
-    debug!("Commande sauvegarder cles : {:?}", commande_sauvegarder_cle);
-
-    // Dechiffrer destinataires
+    // Dechiffrer commande poster transfert (destinataires, fuuids, cle message)
     let commande_transfert = match dechiffrer_cle_message(middleware, &enveloppe_transfert.parsed).await {
         Ok(cle_secrete) => {
             let transfert_inter = MessageInterMillegrille::try_from(enveloppe_transfert.parsed)?;
@@ -1609,6 +1574,50 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
     };
 
     debug!("commande_recevoir_externe Commande transfert dechiffree : {:?}", commande_transfert);
+
+    // Preparer commande/transaction sauvegarder cle - permet de valider le message
+    let commande_sauvegarder_cle = match enveloppe_message.parsed.dechiffrage.as_ref() {
+        Some(inner) => {
+            let hachage_bytes = match inner.hachage.as_ref() {
+                Some(inner) => inner,
+                None => {
+                    error!("commande_recevoir_externe Message dechiffrage.hachage_bytes manquant");
+                    return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message dechiffrage.hachage_bytes manquant"}), None)?))
+                }
+            };
+
+            let mut identificateurs_document = HashMap::new();
+            identificateurs_document.insert("message".to_string(), "true".to_string());
+
+            // Chiffrer la cle secrete pour les maitre des cles locaux.
+            let (_, cle_secrete_bytes) = multibase::decode(commande_transfert.message_key.as_str())?;
+            let mut cles = HashMap::new();
+            for k in middleware.get_publickeys_chiffrage() {
+                let cle_chiffree = chiffrer_asymmetrique_ed25519(&cle_secrete_bytes[..], &k.public_key)?;
+                let cle_str: String = multibase::encode(Base::Base64, &cle_chiffree[..]);
+                cles.insert(k.fingerprint, cle_str);
+            }
+
+            CommandeSauvegarderCle {
+                hachage_bytes: hachage_bytes.to_owned(),
+                domaine: DOMAINE_NOM.into(),
+                identificateurs_document,
+                signature_identite: "".to_string(),
+                cles,
+                format: FormatChiffrage::try_from(inner.format.as_str())?,
+                iv: None,
+                tag: None,
+                header: inner.header.clone(),
+                partition: None,
+                fingerprint_partitions: None,
+            }
+        },
+        None => {
+            error!("commande_recevoir_externe Message sans information de dechiffrage");
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Message sans information de dechiffrage"}), None)?))
+        }
+    };
+    debug!("Commande sauvegarder cles : {:?}", commande_sauvegarder_cle);
 
     // Faire correspondre les destinataires aux usagers locaux
     let mut destinataires_user_id = extraire_destinataires(
