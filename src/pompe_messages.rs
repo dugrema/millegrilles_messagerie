@@ -1074,14 +1074,14 @@ async fn pousser_message_vers_tiers<M>(middleware: &M, message: &DocOutgointProc
         incrementer_push(middleware, fiche.idmg.as_str(), uuid_transaction).await?;
 
         // Generer attachement cles
-        let cles_rechiffrees = rechiffrer_cle_pour_fiche(middleware, &cle_secrete_message, &fiche).await?;
-        debug!("pousser_message_vers_tiers Cles rechiffrees pour {} : {:?}", fiche.idmg, cles_rechiffrees);
+        // let cles_rechiffrees = rechiffrer_cle_pour_fiche(middleware, &cle_secrete_message, &fiche).await?;
+        // debug!("pousser_message_vers_tiers Cles rechiffrees pour {} : {:?}", fiche.idmg, cles_rechiffrees);
         let attachement_transfert = generer_attachement_transfert(
             middleware, &commande_poster, &message, &fiche, &cle_secrete_message).await?;
 
         // Formatter commande avec attachements pour fiche courante
         let mut message = commande_poster.message.clone();
-        message.ajouter_attachement("cles", serde_json::to_value(cles_rechiffrees)?);
+        // message.ajouter_attachement("cles", serde_json::to_value(cles_rechiffrees)?);
         message.ajouter_attachement("transfert", serde_json::to_value(attachement_transfert)?);
 
         // Emettre message sous forme de commande inter-millegrille vers PostMaster
