@@ -259,51 +259,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     }
 
     // Resolve users
-    let destinataires = {
-        let mut destinataires_user_id = Vec::new();
-        let mut destinataires_adresse_user = Vec::new();
-        for adresse in &commande.destinataires {
-            debug!("Resolve destinataire {}", adresse);
-            match AdresseMessagerie::new(adresse.as_str()) {
-                Ok(a) => destinataires_adresse_user.push(a.user),
-                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
-            }
-        }
-        let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
-            .exchanges(vec![Securite::L4Secure])
-            .build();
-        let requete = json!({"noms_usagers": destinataires_adresse_user});
-        debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
-        let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
-        debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
-        let reponse_mappee: ReponseUseridParNomUsager = match reponse {
-            TypeMessage::Valide(m) => {
-                match m.message.parsed.map_contenu() {
-                    Ok(m) => m,
-                    Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
-                }
-            },
-            _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
-        };
-
-        for adresse in &commande.destinataires {
-            debug!("Resolve destinataire {}", adresse);
-            match AdresseMessagerie::new(adresse.as_str()) {
-                Ok(a) => {
-                    let user_id_option = reponse_mappee.usagers.get(a.user.as_str());
-                    if let Some(uo) = user_id_option {
-                        destinataires_user_id.push(DestinataireInfo{
-                            adresse: Some(adresse.to_owned()),
-                            user_id: uo.to_owned()
-                        })
-                    }
-                },
-                Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
-            }
-        }
-
-        destinataires_user_id
-    };
+    let destinataires = extraire_destinataires(middleware, &commande.destinataires).await?;
 
     // if let Some(cle) = commande.cle.take() {
     if let Some(mut attachements) = message.parsed.attachements.take() {
@@ -336,6 +292,55 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     //Ok(sauvegarder_traiter_transaction(middleware, m, gestionnaire).await?)
     Ok(sauvegarder_traiter_transaction_serializable(
         middleware, &commande_maj, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?)
+}
+
+async fn extraire_destinataires<M>(middleware: &M, adresses_destinataires: &Vec<String>)
+    -> Result<Vec<DestinataireInfo>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao
+{
+    let mut destinataires_user_id = Vec::new();
+    let mut destinataires_adresse_user = Vec::new();
+    for adresse in adresses_destinataires {
+        debug!("Resolve destinataire {}", adresse);
+        match AdresseMessagerie::new(adresse.as_str()) {
+            Ok(a) => destinataires_adresse_user.push(a.user),
+            Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+        }
+    }
+    let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
+        .exchanges(vec![Securite::L4Secure])
+        .build();
+    let requete = json!({"noms_usagers": destinataires_adresse_user});
+    debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
+    let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
+    debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
+    let reponse_mappee: ReponseUseridParNomUsager = match reponse {
+        TypeMessage::Valide(m) => {
+            match m.message.parsed.map_contenu() {
+                Ok(m) => m,
+                Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
+            }
+        },
+        _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
+    };
+
+    for adresse in adresses_destinataires {
+        debug!("Resolve destinataire {}", adresse);
+        match AdresseMessagerie::new(adresse.as_str()) {
+            Ok(a) => {
+                let user_id_option = reponse_mappee.usagers.get(a.user.as_str());
+                if let Some(uo) = user_id_option {
+                    destinataires_user_id.push(DestinataireInfo {
+                        adresse: Some(adresse.to_owned()),
+                        user_id: uo.to_owned()
+                    })
+                }
+            },
+            Err(e) => info!("Erreur parsing adresse {}, on l'ignore", adresse)
+        }
+    }
+
+    Ok(destinataires_user_id)
 }
 
 async fn commande_initialiser_profil<M>(middleware: &M, m: MessageValideAction, gestionnaire: &GestionnaireMessagerie)
@@ -1606,12 +1611,35 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
     debug!("commande_recevoir_externe Commande transfert dechiffree : {:?}", commande_transfert);
 
     // Faire correspondre les destinataires aux usagers locaux
-    let mut destinataires_user_id = Vec::new();
+    let mut destinataires_user_id = extraire_destinataires(
+        middleware, &commande_transfert.to).await?;
 
-    if destinataires_user_id.is_empty() {
-        error!("commande_recevoir_externe Aucuns destinataires connus localement");
-        return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Aucuns destinataires connus"}), None)?))
-    }
+    let destinataires_reponse = {
+        let mut destinataires_reponse = HashMap::new();
+        let mut au_moins_1_user = false;
+        for user in &destinataires_user_id {
+            let adresse = match user.adresse.as_ref() {
+                Some(inner) => inner,
+                None => continue  // Skip
+            };
+            match user.user_id.as_ref() {
+                Some(user_id) => {
+                    au_moins_1_user = true;
+                    destinataires_reponse.insert(adresse.to_owned(), 200 as u32);  // Trouve
+                },
+                None => {
+                    destinataires_reponse.insert(adresse.to_owned(), 404 as u32);  // Inconnu
+                }
+            }
+        }
+
+        if au_moins_1_user == false {
+            error!("commande_recevoir_externe Aucuns destinataires connus localement");
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": "Aucuns destinataires connus"}), None)?))
+        }
+
+        destinataires_reponse
+    };
 
     // Sauvegarder cle du message
     let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
@@ -1644,8 +1672,14 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
         fuuids: commande_transfert.files,
     };
 
-    Ok(sauvegarder_traiter_transaction_serializable(
-        middleware, &commande_post, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?)
+    let resultat_traitement = sauvegarder_traiter_transaction_serializable(
+        middleware, &commande_post, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?;
+    debug!("Resultat traitement transaction : {:?}", resultat_traitement);
+
+    let reponse = json!({"ok": true, "adresses": destinataires_reponse});
+    let reponse = middleware.formatter_reponse(&reponse, None)?;
+
+    Ok(Some(reponse))
 }
 
 async fn dechiffrer_cle_message<M>(middleware: &M, message: &MessageMilleGrille)
