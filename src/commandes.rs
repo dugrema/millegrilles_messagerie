@@ -1690,6 +1690,8 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
     }
 
     // Sauvegarder et traiter transaction du message
+    enveloppe_message.parsed.retirer_certificats();
+    enveloppe_message.parsed.retirer_attachments();
     let commande_post = DocumentRecevoirPost {
         message: enveloppe_message.parsed,
         destinataires_user_id,
