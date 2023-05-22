@@ -53,6 +53,7 @@ pub const TRANSACTION_LU: &str = "lu";
 pub const TRANSACTION_TRANSFERT_COMPLETE: &str = "transfertComplete";
 pub const TRANSACTION_SUPPRIMER_MESSAGES: &str = "supprimerMessages";
 pub const TRANSACTION_SUPPRIMER_CONTACTS: &str = "supprimerContacts";
+pub const TRANSACTION_TRANSFERT_FICHIERS_COMPLETES: &str = "fichiersCompletes";
 pub const TRANSACTION_CONFIRMER_TRANMISSION_MILLEGRILLE: &str = "confirmerTransmissionMillegrille";
 pub const TRANSACTION_CONSERVER_CONFIGURATION_NOTIFICATIONS: &str = "conserverConfigurationNotifications";
 pub const TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS: &str = "sauvegarderClewebpushNotifications";
@@ -60,6 +61,7 @@ pub const TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS: &str = "sauvegard
 pub const TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH: &str = "sauvegarderSubscriptionWebpush";
 pub const TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH: &str = "retirerSubscriptionWebpush";
 pub const TRANSACTION_NOTIFIER: &str = "notifier";
+
 
 // pub const COMMANDE_INDEXER: &str = "indexerContenu";
 

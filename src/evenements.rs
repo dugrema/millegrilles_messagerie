@@ -10,11 +10,14 @@ use millegrilles_common_rust::constantes::Securite;
 use millegrilles_common_rust::formatteur_messages::MessageMilleGrille;
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, MongoDao};
-use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument};
+use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
 use millegrilles_common_rust::recepteur_messages::MessageValideAction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::constantes::*;
 use millegrilles_common_rust::constantes::Securite::L2Prive;
+use millegrilles_common_rust::middleware::{sauvegarder_traiter_transaction, sauvegarder_traiter_transaction_serializable};
+use millegrilles_common_rust::serde::Deserialize;
+use millegrilles_common_rust::verificateur::VerificateurMessage;
 
 use crate::constantes::*;
 use crate::message_structs::*;
@@ -23,7 +26,7 @@ use crate::pompe_messages::{evenement_pompe_poste, verifier_fin_transferts_attac
 
 pub async fn consommer_evenement<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: MessageValideAction)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where M: ValidateurX509 + GenerateurMessages + MongoDao
+    where M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
 {
     debug!("gestionnaire.consommer_evenement Consommer evenement : {:?}", &m.message);
 
@@ -110,10 +113,70 @@ pub async fn consommer_evenement<M>(gestionnaire: &GestionnaireMessagerie, middl
 //     Ok(None)
 // }
 
+#[derive(Deserialize)]
+struct DocFichiersMessage {
+    message: MessageIncomingReferenceSub,
+    fichiers: HashMap<String, bool>
+}
+
+async fn verifier_fichiers_incoming_completes<M>(middleware: &M, gestionnaire: &GestionnaireMessagerie, message: EvenementFichiersConsigne)
+    -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage
+{
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let fuuid = message.hachage_bytes.as_str();
+    let filtre = doc!{
+        CHAMP_FICHIERS_COMPLETES: false,
+        format!("fichiers.{}", fuuid): true,
+    };
+    let options = FindOptions::builder()
+        .hint(Hint::Name(String::from("fichiers_fuuid")))
+        .projection(Some(doc!{
+            "message.id": true,
+            "message.estampille": true,
+            "fichiers": true,
+        }))
+        .build();
+
+    // Conserver messages ids - skip doublons du au meme message avec plusieurs destinataires
+    let mut message_ids = HashSet::new();
+
+    let mut curseur = collection.find(filtre, Some(options)).await?;
+    while let Some(r) = curseur.next().await {
+        let doc_fichiers: DocFichiersMessage = convertir_bson_deserializable(r?)?;
+
+        if message_ids.contains(&doc_fichiers.message.id) {
+            // Skip, le message est deja dans la liste (destinataire different, meme message)
+            continue;
+        }
+
+        let message_id = doc_fichiers.message.id.as_str();
+        message_ids.insert(message_id.to_owned());
+
+        // Verifier si tous les fichiers sont recus (true)
+        let mut tous_recus = true;
+
+        let mut fuuids_fichiers = Vec::new();
+        for (fuuid, r) in doc_fichiers.fichiers.into_iter() {
+            fuuids_fichiers.push(fuuid);
+            tous_recus &= r;
+        }
+
+        if tous_recus == true {
+            // Tous les fichiers sont recus, creer transaction pour marquer reception completee
+            let transaction = TransactionFichiersCompletes { message_id: message_id.to_owned(), fichiers: Some(fuuids_fichiers)};
+            debug!("verifier_fichiers_incoming_completes Tous les fichiers sont recus pour {}", message_id);
+            sauvegarder_traiter_transaction_serializable(
+                middleware, &transaction, gestionnaire, DOMAINE_NOM, TRANSACTION_TRANSFERT_FICHIERS_COMPLETES).await?;
+        }
+    }
+
+    Ok(None)
+}
+
 pub async fn evenement_fichier_consigne<M>(gestionnaire: &GestionnaireMessagerie, middleware: &M, m: &MessageValideAction)
     -> Result<Option<MessageMilleGrille>, Box<dyn Error>>
-    where
-        M: ValidateurX509 + GenerateurMessages + MongoDao,
+    where M: ValidateurX509 + GenerateurMessages + MongoDao + VerificateurMessage
 {
     debug!("evenement_fichier_consigne Evenement recu {:?}", m);
     let tx_pompe = gestionnaire.get_tx_pompe();
@@ -121,20 +184,28 @@ pub async fn evenement_fichier_consigne<M>(gestionnaire: &GestionnaireMessagerie
     debug!("evenement_fichier_consigne parsed {:?}", message);
 
     let filtre = doc!{
-        CHAMP_ATTACHMENTS_TRAITES: false,
-        format!("attachments.{}", message.hachage_bytes): false,
+        CHAMP_FICHIERS_COMPLETES: false,
+        format!("fichiers.{}", message.hachage_bytes): false,
     };
     let ops = doc!{
         "$set": {
-            format!("attachments.{}", message.hachage_bytes): true,
+            format!("fichiers.{}", message.hachage_bytes): true,
         },
         "$currentDate": {CHAMP_MODIFICATION: true},
     };
+    let options = UpdateOptions::builder()
+        .hint(Hint::Name(String::from("fichiers_fuuid")))
+        .build();
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-    let resultat = collection.update_many(filtre, ops, None).await?;
+    let resultat = collection.update_many(filtre, ops, Some(options)).await?;
     debug!("evenement_fichier_consigne Resultat maj {:?}", resultat);
 
-    Ok(None)
+    if resultat.modified_count > 0 {
+        debug!("evenement_fichier_consigne Verifier si fichiers de {} messages sont completes", resultat.modified_count);
+        Ok(verifier_fichiers_incoming_completes(middleware, gestionnaire, message).await?)
+    } else {
+        Ok(None)
+    }
 }
 
 async fn evenement_confirmer_etat_fuuids<M>(middleware: &M, m: MessageValideAction)
@@ -167,12 +238,12 @@ async fn repondre_fuuids<M>(middleware: &M, evenement_fuuids: &Vec<String>)
     }
 
     let opts = FindOptions::builder()
-        .hint(Hint::Name(String::from("attachments_fuuid")))
+        .hint(Hint::Name(String::from("fichiers_fuuid")))
         .build();
     // let mut filtre = doc!{"fuuids": {"$in": evenement_fuuids}};
     let mut vec_fuuids = Vec::new();
     for fuuid in evenement_fuuids {
-        vec_fuuids.push(doc!{format!("attachments.{}", fuuid): true});
+        vec_fuuids.push(doc!{format!("fichiers.{}", fuuid): true});
     }
     let filtre = doc! {
         "$or": vec_fuuids,
@@ -186,8 +257,8 @@ async fn repondre_fuuids<M>(middleware: &M, evenement_fuuids: &Vec<String>)
     let mut curseur = collection.find(filtre, opts).await?;
     while let Some(d) = curseur.next().await {
         let record: RowEtatFuuid = convertir_bson_deserializable(d?)?;
-        let attachments_traites = record.attachments_traites;
-        for (fuuid, traite) in record.attachments.into_iter() {
+        let attachments_traites = record.fichiers_completes;
+        for (fuuid, traite) in record.fichiers.into_iter() {
             if fuuids.contains(&fuuid) {
                 fuuids.remove(&fuuid);
                 // Note: on ignore les fichiers supprimes == true, on va laisser la chance a
@@ -199,12 +270,6 @@ async fn repondre_fuuids<M>(middleware: &M, evenement_fuuids: &Vec<String>)
             }
         }
     }
-
-    // // Ajouter tous les fuuids manquants (encore dans le set)
-    // // Ces fichiers sont inconnus et presumes supprimes
-    // for fuuid in fuuids.into_iter() {
-    //     fichiers_confirmation.push( ConfirmationEtatFuuid { fuuid, supprime: true } );
-    // }
 
     if fichiers_confirmation.is_empty() {
         debug!("repondre_fuuids Aucuns fuuids connus, on ne repond pas");

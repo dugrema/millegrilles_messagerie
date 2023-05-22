@@ -639,9 +639,9 @@ pub struct EvenementConfirmerEtatFuuids {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RowEtatFuuid {
-    pub attachments: HashMap<String, bool>,
+    pub fichiers: HashMap<String, bool>,
     pub supprime: bool,
-    pub attachments_traites: bool,
+    pub fichiers_completes: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -867,4 +867,10 @@ pub struct CommandeTransfertPoster {
     pub to: Vec<String>,
     pub files: Option<Vec<String>>,
     pub message_key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TransactionFichiersCompletes {
+    pub message_id: String,
+    pub fichiers: Option<Vec<String>>,
 }

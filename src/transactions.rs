@@ -17,7 +17,7 @@ use millegrilles_common_rust::formatteur_messages::{DateEpochSeconds, MessageMil
 use millegrilles_common_rust::generateur_messages::{GenerateurMessages, RoutageMessageAction};
 use millegrilles_common_rust::middleware::{map_msg_to_bson, map_serializable_to_bson, sauvegarder_traiter_transaction};
 use millegrilles_common_rust::mongo_dao::{convertir_bson_deserializable, convertir_to_bson, MongoDao, verifier_erreur_duplication_mongo};
-use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, ReturnDocument, UpdateOptions};
+use millegrilles_common_rust::mongodb::options::{FindOneAndUpdateOptions, FindOptions, Hint, ReturnDocument, UpdateOptions};
 use millegrilles_common_rust::recepteur_messages::{MessageValideAction, TypeMessage};
 use millegrilles_common_rust::redis::ToRedisArgs;
 use millegrilles_common_rust::serde::{Deserialize, Serialize};
@@ -58,7 +58,8 @@ where
         TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS |
         TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS |
         TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH |
-        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH
+        TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH |
+        TRANSACTION_TRANSFERT_FICHIERS_COMPLETES
         => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
@@ -96,6 +97,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS => sauvegarder_usager_config_notifications(gestionnaire, middleware, transaction).await,
         TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH => sauvegarder_subscription_webpush(gestionnaire, middleware, transaction).await,
         TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH => retirer_subscription_webpush(gestionnaire, middleware, transaction).await,
+        TRANSACTION_TRANSFERT_FICHIERS_COMPLETES => transfert_fichiers_completes(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), action)),
     }
 }
@@ -1411,4 +1413,47 @@ async fn verifier_toggle_notifications_actives<M>(middleware: &M, user_id: &str)
         Ok(r) => Ok(()),
         Err(e) => Err(format!("transactions.verifier_toggle_notifications_actives Erreur toggle notifications actives {:?}", e))?
     }
+}
+
+pub async fn transfert_fichiers_completes<M, T>(
+    gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T
+)
+    -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509,
+        T: Transaction
+{
+    debug!("transfert_fichiers_completes Consommer transaction : {:?}", &transaction);
+
+    let transaction_mappee = match transaction.convertir::<TransactionFichiersCompletes>() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transactions.transfert_fichiers_completes Erreur conversion transaction : {:?}", e))?
+    };
+
+    let message_id = transaction_mappee.message_id.as_str();
+    let filtre = doc! { "message.id": message_id };
+
+    let mut set_ops = doc!{
+        CHAMP_FICHIERS_COMPLETES: true,
+    };
+    if let Some(fuuids) = transaction_mappee.fichiers {
+        for fuuid in fuuids.into_iter() {
+            set_ops.insert(format!("fichiers.{}", fuuid), true);
+        }
+    }
+
+    let ops = doc! {
+        "$set": set_ops,
+        "$currentDate": {CHAMP_MODIFICATION: true}
+    };
+
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    match collection.update_many(filtre, ops, None).await {
+        Ok(r) => {
+            debug!("transfert_fichiers_completes {} messages marques completes", r.modified_count);
+        },
+        Err(e) => Err(format!("transactions.transfert_fichiers_completes Erreur update pour transfert complete {} : {:?}", message_id, e))?
+    };
+
+    Ok(middleware.reponse_ok()?)
 }

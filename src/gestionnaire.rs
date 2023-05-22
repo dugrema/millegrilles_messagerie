@@ -436,11 +436,11 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
 
     // Index user_id, uuid_transaction pour messages incoming
     let options_attachments_fuuids = IndexOptions {
-        nom_index: Some(String::from("attachments_fuuid")),
+        nom_index: Some(String::from("fichiers_fuuid")),
         unique: false
     };
     let champs_attachments_fuuids = vec!(
-        ChampIndex {nom_champ: String::from("attachments"), direction: 1},
+        ChampIndex {nom_champ: String::from("fichiers"), direction: 1},
     );
     middleware.create_index(
         middleware,
@@ -451,11 +451,11 @@ pub async fn preparer_index_mongodb_custom<M>(middleware: &M) -> Result<(), Stri
 
     // Index uuid_message/user_id pour messages incoming
     let options_incoming_attachmentstraites = IndexOptions {
-        nom_index: Some(String::from("attachments_traites")),
+        nom_index: Some(String::from("fichiers_completes")),
         unique: false
     };
     let champs_incoming_attachmentstraites = vec!(
-        ChampIndex {nom_champ: String::from(CHAMP_ATTACHMENTS_TRAITES), direction: 1},
+        ChampIndex {nom_champ: String::from(CHAMP_FICHIERS_COMPLETES), direction: 1},
     );
     middleware.create_index(
         middleware,
