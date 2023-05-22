@@ -379,9 +379,9 @@ pub struct MessageIncomingReference {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncomingAttachments {
-    pub message_id: String,
-    pub attachments: Option<HashMap<String, bool>>,
-    pub attachments_traites: Option<bool>,
+    pub message: MessageIncomingReferenceSub,
+    pub fichiers: Option<HashMap<String, bool>>,
+    pub fichiers_completes: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
