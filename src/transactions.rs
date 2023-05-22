@@ -394,94 +394,58 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
         }
     };
 
-    // Conserver message pour chaque destinataires locaux
-    // let message_chiffre = message_enveloppe.message_chiffre;
-    // let hachage_bytes = message_enveloppe.hachage_bytes;
-    // let fingerprint_usager = message_enveloppe.fingerprint_certificat;
-    // let attachments = message_enveloppe.attachments;
-
-    // // let destinataires = match message_recevoir.destinataires_user_id.as_ref() {
-    // //     Some(inner) => {
-    // //         if inner.len() > 0 {
-    // //             inner
-    // //         } else {
-    // //             Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
-    // //         }
-    // //     },
-    // //     None => Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id"))?
-    // // };
-    //
-    // // Retirer la part serveur du destinataire
-    // // let mut destinataires_resultat = HashMap::new();
-    // // let (destinataires_nomusager, destinataires_adresses) = {
-    // //     let mut destinataires = Vec::new();
-    // //     let mut destinataires_adresses = HashMap::new();
-    // //     for adresse in &message_recevoir.destinataires {
-    // //         match AdresseMessagerie::new(adresse.as_str()) {
-    // //             Ok(a) => {
-    // //                 destinataires_adresses.insert(a.user.clone(), adresse.to_owned());
-    // //                 destinataires_resultat.insert(adresse.to_owned(), 404);  // Defaut usager inconnu
-    // //                 destinataires.push(a.user);
-    // //             },
-    // //             Err(e) => {
-    // //                 // Verifier si c'est un nom d'usager interne
-    // //
-    // //                 info!("Erreur parsing adresse {}, on l'ignore", adresse)
-    // //             }
-    // //         }
-    // //     }
-    // //     (destinataires, destinataires_adresses)
-    // // };
-
     // Resolve destinataires nom_usager => user_id
     let destinataires = message_recevoir.destinataires_user_id;
     if destinataires.len() == 0 {
         Err(format!("transactions.transaction_recevoir Erreur reception message, aucun destinataire_user_id (len==0)"))?
     }
 
-    // // let reponse_mappee: ReponseUseridParNomUsager = {
-    // //     let requete_routage = RoutageMessageAction::builder("CoreMaitreDesComptes", "getUserIdParNomUsager")
-    // //         .exchanges(vec![Securite::L4Secure])
-    // //         .build();
-    // //     let requete = json!({"noms_usagers": destinataires_nomusager});
-    // //     debug!("transaction_recevoir Requete {:?} pour user names : {:?}", requete_routage, requete);
-    // //     let reponse = middleware.transmettre_requete(requete_routage, &requete).await?;
-    // //     debug!("transaction_recevoir Reponse mapping users : {:?}", reponse);
-    // //     match reponse {
-    // //         TypeMessage::Valide(m) => {
-    // //             match m.message.parsed.map_contenu(None) {
-    // //                 Ok(m) => m,
-    // //                 Err(e) => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers : {:?}", e))?
-    // //             }
-    // //         },
-    // //         _ => Err(format!("pompe_messages.transaction_recevoir Erreur mapping reponse requete noms usagers, mauvais type reponse"))?
-    // //     }
-    // // };
-
     let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
-
-    // let certificat_usager = middleware.get_certificat(fingerprint_usager.as_str()).await;
-    // let certificat_usager_pem: Vec<String> = match certificat_usager {
-    //     Some(c) => {
-    //         let fp_certs = c.get_pem_vec();
-    //         fp_certs.into_iter().map(|c| c.pem).collect()
-    //     },
-    //     None => Err(format!("transactions.transaction_recevoir Erreur insertion message {}, certificat {} introuvable", uuid_transaction, fingerprint_usager))?
-    // };
 
     let attachements_recus = match message_recevoir.fuuids.as_ref() {
         // Si on a des attachments et le message est local : true.
         // Sinon aucuns attachments => true, au moins 1 => false
-        Some(a) => message_local || a.is_empty(),
+        Some(a) => {
+            if message_local || a.is_empty() {
+                // Fichiers completes - local ou aucuns fichiers
+                true
+            } else {
+                // Message inter-millegrille avec fichiers
+                match message_recevoir.fichiers.as_ref() {
+                    Some(fuuids) => {
+                        let mut fichiers_completes = true;
+                        for fuuid in a {
+                            fichiers_completes &= fuuids.get(fuuid) == Some(&true);
+                        }
+                        fichiers_completes
+                    },
+                    None => false
+                }
+            }
+        },
         None => true
     };
 
     let map_attachements = match message_recevoir.fuuids.as_ref() {
         Some(a) => {
             let mut map_attachements = HashMap::new();
-            for fuuid in a {
-                // Si message local, on marque recu. Sinon on met false.
-                map_attachements.insert(fuuid.to_owned(), message_local);
+            if message_local || attachements_recus {
+                for fuuid in a {
+                    // Si message local, on marque recu. Sinon on met false.
+                    map_attachements.insert(fuuid.to_owned(), true);
+                }
+            } else {
+                // Message inter-millegrille avec fichiers manquants
+                for fuuid in a {
+                    // Si message local, on marque recu. Sinon on met false.
+                    map_attachements.insert(fuuid.to_owned(), false);
+                }
+                if let Some(fuuids) = message_recevoir.fichiers.as_ref() {
+                    // Conserver etat connu par fichier
+                    for (fuuid, etat) in fuuids {
+                        map_attachements.insert(fuuid.clone(), *etat);
+                    }
+                }
             }
             Some(map_attachements)
         },

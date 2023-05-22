@@ -177,6 +177,9 @@ pub struct DocumentRecevoirPost {
     pub message: MessageMilleGrille,
     pub destinataires_user_id: Vec<DestinataireInfo>,
     pub fuuids: Option<Vec<String>>,
+
+    // Section inter-millegrille - fichiers deja presents localement
+    pub fichiers: Option<HashMap<String, bool>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -873,4 +876,9 @@ pub struct CommandeTransfertPoster {
 pub struct TransactionFichiersCompletes {
     pub message_id: String,
     pub fichiers: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReponsePresenceFichiers {
+    pub fuuids: HashMap<String, bool>,
 }

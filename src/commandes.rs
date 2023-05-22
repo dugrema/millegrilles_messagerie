@@ -265,14 +265,14 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
     if let Some(mut attachements) = message.parsed.attachements.take() {
         if let Some(cle) = attachements.remove("cle") {
             let cle: CommandeSauvegarderCle = serde_json::from_value(cle)?;
-            debug!("Sauvegarder cle : {:?}", cle);
+            debug!("commande_recevoir Sauvegarder cle : {:?}", cle);
             if let Some(p) = cle.partition.as_ref() {
                 let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
                     .exchanges(vec![Securite::L3Protege])
                     .partition(p.to_owned())
                     .build();
                 let reponse = middleware.transmettre_commande(routage, &cle, true).await?;
-                debug!("Reponse commande sauvegarder cle {:?}", reponse);
+                debug!("commande_recevoir Reponse commande sauvegarder cle {:?}", reponse);
             } else {
                 Err(format!("commandes.recevoir Erreur sauvegarde cle - partition n'est pas fournie"))?
             }
@@ -286,6 +286,7 @@ async fn commande_recevoir<M>(middleware: &M, m: MessageValideAction, gestionnai
         message: message.parsed,
         destinataires_user_id: destinataires,
         fuuids: commande.fuuids,
+        fichiers: None,
     };
 
     // Traiter la transaction
@@ -1689,6 +1690,29 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
         }
     }
 
+    let mut fichiers = None;
+    if let Some(fuuids) = commande_transfert.files.as_ref() {
+        debug!("commande_recevoir_externe Verifier si fichiers existent deja localement : {:?}", fuuids);
+        let routage = RoutageMessageAction::builder(
+            DOMAINE_FICHIERS_NOM, COMMANDE_FUUID_VERIFIER_EXISTANCE)
+            .exchanges(vec![Securite::L2Prive])
+            .build();
+        let requete = json!({"fuuids": fuuids});
+        match middleware.transmettre_requete(routage, &requete).await {
+            Ok(reponse) => match reponse {
+                TypeMessage::Valide(reponse) => {
+                    debug!("commande_recevoir_externe Reponse fichiers presents localement : {:?}", reponse);
+                    let reponse_fuuids: ReponsePresenceFichiers = reponse.message.parsed.map_contenu()?;
+                    fichiers = Some(reponse_fuuids.fuuids);
+                },
+                _ => error!("commande_recevoir_externe Mauvais type reponse, assumer fichiers manquants")
+            },
+            Err(e) => {
+                error!("commande_recevoir_externe Erreur reponse requete verifier fichiers, assumer fichiers manquants : {:?}", e);
+            }
+        }
+    }
+
     // Sauvegarder et traiter transaction du message
     enveloppe_message.parsed.retirer_certificats();
     enveloppe_message.parsed.retirer_attachments();
@@ -1696,11 +1720,12 @@ async fn commande_recevoir_externe<M>(middleware: &M, m: MessageValideAction, ge
         message: enveloppe_message.parsed,
         destinataires_user_id,
         fuuids: commande_transfert.files,
+        fichiers,
     };
 
     let resultat_traitement = sauvegarder_traiter_transaction_serializable(
         middleware, &commande_post, gestionnaire, DOMAINE_NOM, TRANSACTION_RECEVOIR).await?;
-    debug!("Resultat traitement transaction : {:?}", resultat_traitement);
+    debug!("commande_recevoir_externe Resultat traitement transaction : {:?}", resultat_traitement);
 
     let reponse = json!({"ok": true, "adresses": destinataires_reponse});
     let reponse = middleware.formatter_reponse(&reponse, None)?;
