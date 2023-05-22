@@ -54,7 +54,7 @@ pub struct DocOutgointProcessing {
     pub idmgs_unprocessed: Option<Vec<String>>,
     pub idmgs_attachments_unprocessed: Option<Vec<String>>,
     pub idmgs_mapping: Option<HashMap<String, DocMappingIdmg>>,
-    pub attachments: Option<Vec<String>>,
+    pub fuuids: Option<Vec<String>>,
     pub dns_failure: Option<Vec<String>>,
 }
 
