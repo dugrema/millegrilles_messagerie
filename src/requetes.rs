@@ -260,6 +260,12 @@ async fn mapper_messages_curseur<M>(middleware: &M, mut curseur: Cursor<Document
                 let mut message_db: MessageIncomingClient = convertir_bson_deserializable(fcurseur)?;
                 match middleware.get_certificat(message_db.message.pubkey.as_str()).await {
                     Some(inner) => {
+
+                        // Verifier si le certificat est inter-millegrille
+                        if let Some(ca) = inner.get_pem_ca()? {
+                            message_db.millegrille = Some(ca);
+                        }
+
                         message_db.certificat = Some(inner.get_pem_vec_extracted());
                         messages_mappes.push(message_db);
                     },
