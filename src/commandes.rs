@@ -9,7 +9,7 @@ use millegrilles_common_rust::{multibase, serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{Bson, doc, Document};
 use millegrilles_common_rust::certificats::{EnveloppeCertificat, ValidateurX509, VerificateurPermissions};
-use millegrilles_common_rust::chiffrage::{ChiffrageFactory, CipherMgs, CleChiffrageHandler, CleSecrete, FormatChiffrage, MgsCipherKeys};
+use millegrilles_common_rust::chiffrage::{ChiffrageFactory, chiffrer_data, chiffrer_data_get_keys, CipherMgs, CleChiffrageHandler, CleSecrete, FormatChiffrage, MgsCipherKeys};
 use millegrilles_common_rust::chiffrage_cle::CommandeSauvegarderCle;
 use millegrilles_common_rust::chiffrage_ed25519::{chiffrer_asymmetrique_ed25519, dechiffrer_asymmetrique_ed25519};
 use millegrilles_common_rust::chrono::{DateTime, Utc, Duration};
@@ -947,43 +947,62 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
     debug!("PEM PRIVE cle notification : \n{}\n{:?}", pem_prive, public_key_str);
 
     let data_dechiffre = json!({"cle_privee_pem": &pem_prive});
-    let data_dechiffre_string = serde_json::to_string(&data_dechiffre)?;
-    let data_dechiffre_bytes = data_dechiffre_string.as_bytes();
+    // let data_dechiffre_string = serde_json::to_string(&data_dechiffre)?;
+    // let data_dechiffre_bytes = data_dechiffre_string.as_bytes();
 
-    // Creer transaction pour sauvegarder cles webpush
     let data_chiffre = {
-        let mut chiffreur = middleware.get_chiffrage_factory().get_chiffreur()?;
+        let (mut data_chiffre, cle_profil) = chiffrer_data_get_keys(middleware, data_dechiffre)?;
 
-        let mut output = [0u8; 2 * 1024];
-        let output_size = chiffreur.update(data_dechiffre_bytes, &mut output)?;
-        let (final_output_size, keys) = chiffreur.finalize(&mut output[output_size..])?;
+        data_chiffre.data_chiffre = format!("m{}", data_chiffre.data_chiffre); // Ajout m (multibase base64)
 
-        debug!("generer_clewebpush_notifications Data chiffre {} + {}\nOutput : {:?}",
-            output_size, final_output_size, &output[..output_size+final_output_size]);
-        let data_chiffre_multibase: String = multibase::encode(Base::Base64, &output[..output_size+final_output_size]);
-
+        // Sauvegarder la nouvelle cle
         let mut identificateurs = HashMap::new();
         identificateurs.insert("type".to_string(), "notifications_webpush".to_string());
-        debug!("commande_initialiser_profil Hachage bytes {}", keys.hachage_bytes);
-        let cle_profil = keys.get_commande_sauvegarder_cles(DOMAINE_NOM, None, identificateurs)?;
+        let commande_cles = cle_profil.get_commande_sauvegarder_cles(
+            DOMAINE_NOM, None, identificateurs)?;
         let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
             .exchanges(vec![Securite::L4Secure])
             .build();
-        debug!("commande_initialiser_profil Sauvegarder cle {:?}", cle_profil);
-        middleware.transmettre_commande(routage, &cle_profil, true).await?;
+        debug!("commande_initialiser_profil Sauvegarder cle {:?}", commande_cles);
+        middleware.transmettre_commande(routage, &commande_cles, true).await?;
 
-        // Sauvegarder cle chiffree
-        let data_chiffre = DataChiffre {
-            ref_hachage_bytes: Some(cle_profil.hachage_bytes.clone()),
-            data_chiffre: data_chiffre_multibase,
-            format: cle_profil.format.clone(),
-            header: cle_profil.header.clone(),
-            tag: cle_profil.tag.clone(),
-        };
-
-        debug!("generer_clewebpush_notifications Data chiffre : {:?}", data_chiffre);
         data_chiffre
     };
+
+    // Creer transaction pour sauvegarder cles webpush
+    // let data_chiffre = {
+    //     let mut chiffreur = middleware.get_chiffrage_factory().get_chiffreur()?;
+    //
+    //     let mut output = [0u8; 2 * 1024];
+    //     let output_size = chiffreur.update(data_dechiffre_bytes, &mut output)?;
+    //     let (final_output_size, keys) = chiffreur.finalize(&mut output[output_size..])?;
+    //
+    //     debug!("generer_clewebpush_notifications Data chiffre {} + {}\nOutput : {:?}",
+    //         output_size, final_output_size, &output[..output_size+final_output_size]);
+    //     let data_chiffre_multibase: String = multibase::encode(Base::Base64, &output[..output_size+final_output_size]);
+    //
+    //     let mut identificateurs = HashMap::new();
+    //     identificateurs.insert("type".to_string(), "notifications_webpush".to_string());
+    //     debug!("commande_initialiser_profil Hachage bytes {}", keys.hachage_bytes);
+    //     let cle_profil = keys.get_commande_sauvegarder_cles(DOMAINE_NOM, None, identificateurs)?;
+    //     let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
+    //         .exchanges(vec![Securite::L4Secure])
+    //         .build();
+    //     debug!("commande_initialiser_profil Sauvegarder cle {:?}", cle_profil);
+    //     middleware.transmettre_commande(routage, &cle_profil, true).await?;
+    //
+    //     // Sauvegarder cle chiffree
+    //     let data_chiffre = DataChiffre {
+    //         ref_hachage_bytes: Some(cle_profil.hachage_bytes.clone()),
+    //         data_chiffre: data_chiffre_multibase,
+    //         format: cle_profil.format.clone(),
+    //         header: cle_profil.header.clone(),
+    //         tag: cle_profil.tag.clone(),
+    //     };
+    //
+    //     debug!("generer_clewebpush_notifications Data chiffre : {:?}", data_chiffre);
+    //     data_chiffre
+    // };
 
     // Generer nouvelle transaction
     let transaction = TransactionCleWebpush {
@@ -1106,6 +1125,7 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
     };
 
     // Demander cles de dechiffrage
+    debug!("generer_notification_usager Dechiffrer configuration notifications email");
     let data_dechiffre = dechiffrer_documents(middleware, data_chiffre).await?;
 
     let mut mapping_dechiffre = HashMap::new();
