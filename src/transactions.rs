@@ -623,7 +623,7 @@ async fn ajouter_notification_usager<M>(middleware: &M, user_id: &str, uuid_mess
     };
 
     let push_ops = doc! {
-        CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: uuid_message,
+        CHAMP_MESSAGE_ID_NOTIFICATIONS: uuid_message,
     };
 
     let ops = doc! {

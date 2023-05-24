@@ -110,7 +110,8 @@ pub const CHAMP_ATTACHMENTS_RETRY: &str = "attachments_retry";
 pub const CHAMP_CONFIG_KEY: &str = "config_key";
 pub const CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: &str = "expiration_lock_notifications";
 // pub const CHAMP_UUID_MESSAGES_NOTIFICATIONS: &str = "uuid_messages_notifications";
-pub const CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: &str = "uuid_transactions_notifications";
+pub const CHAMP_MESSAGE_ID_NOTIFICATIONS: &str = "message_id_notifications";
+pub const CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: &str = CHAMP_MESSAGE_ID_NOTIFICATIONS;
 pub const CHAMP_NOTIFICATIONS_PENDING: &str = "notifications_pending";
 
 pub const CONFIG_KEY_NOTIFICATIONS: &str = "notifications";

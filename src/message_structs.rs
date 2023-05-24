@@ -456,6 +456,7 @@ pub struct ProfilReponse {
     pub email_chiffre: Option<DataChiffre>,
     pub notifications_actives: Option<bool>,
     pub webpush_subscriptions: Option<HashMap<String, TransactionSauvegarderSubscriptionWebpush>>,
+    pub email_inclure_detail: Option<bool>,  // Ajouter detail comme pour webpush dans email (insecure)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

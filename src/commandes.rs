@@ -969,41 +969,6 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
         data_chiffre
     };
 
-    // Creer transaction pour sauvegarder cles webpush
-    // let data_chiffre = {
-    //     let mut chiffreur = middleware.get_chiffrage_factory().get_chiffreur()?;
-    //
-    //     let mut output = [0u8; 2 * 1024];
-    //     let output_size = chiffreur.update(data_dechiffre_bytes, &mut output)?;
-    //     let (final_output_size, keys) = chiffreur.finalize(&mut output[output_size..])?;
-    //
-    //     debug!("generer_clewebpush_notifications Data chiffre {} + {}\nOutput : {:?}",
-    //         output_size, final_output_size, &output[..output_size+final_output_size]);
-    //     let data_chiffre_multibase: String = multibase::encode(Base::Base64, &output[..output_size+final_output_size]);
-    //
-    //     let mut identificateurs = HashMap::new();
-    //     identificateurs.insert("type".to_string(), "notifications_webpush".to_string());
-    //     debug!("commande_initialiser_profil Hachage bytes {}", keys.hachage_bytes);
-    //     let cle_profil = keys.get_commande_sauvegarder_cles(DOMAINE_NOM, None, identificateurs)?;
-    //     let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, COMMANDE_SAUVEGARDER_CLE)
-    //         .exchanges(vec![Securite::L4Secure])
-    //         .build();
-    //     debug!("commande_initialiser_profil Sauvegarder cle {:?}", cle_profil);
-    //     middleware.transmettre_commande(routage, &cle_profil, true).await?;
-    //
-    //     // Sauvegarder cle chiffree
-    //     let data_chiffre = DataChiffre {
-    //         ref_hachage_bytes: Some(cle_profil.hachage_bytes.clone()),
-    //         data_chiffre: data_chiffre_multibase,
-    //         format: cle_profil.format.clone(),
-    //         header: cle_profil.header.clone(),
-    //         tag: cle_profil.tag.clone(),
-    //     };
-    //
-    //     debug!("generer_clewebpush_notifications Data chiffre : {:?}", data_chiffre);
-    //     data_chiffre
-    // };
-
     // Generer nouvelle transaction
     let transaction = TransactionCleWebpush {
         data_chiffre,
@@ -1016,17 +981,6 @@ async fn generer_clewebpush_notifications<M>(middleware: &M, m: MessageValideAct
     let reponse = sauvegarder_traiter_transaction_serializable(
         middleware, &transaction, gestionnaire,
         DOMAINE_NOM, TRANSACTION_SAUVEGARDER_CLEWEBPUSH_NOTIFICATIONS).await?;
-
-    // let transaction = middleware.formatter_message(
-    //     &transaction, Some(DOMAINE_NOM), Some(m.action.as_str()), None, None, false)?;
-    // let mut transaction = MessageValideAction::from_message_millegrille(
-    //     transaction, TypeMessageOut::Transaction)?;
-    //
-    // // Conserver enveloppe pour validation
-    // transaction.message.set_certificat(middleware.get_enveloppe_signature().enveloppe.clone());
-
-    // // Traiter la transaction
-    // Ok(sauvegarder_traiter_transaction(middleware, transaction, gestionnaire).await?)
 
     let reponse = json!({"ok": true, "webpush_public_key": public_key_str});
     Ok(Some(middleware.formatter_reponse(&reponse, None)?))
@@ -1057,7 +1011,7 @@ async fn emettre_notifications_usager<M>(middleware: &M, m: MessageValideAction,
         "$set": {
             CHAMP_NOTIFICATIONS_PENDING: false,
             CHAMP_EXPIRATION_LOCK_NOTIFICATIONS: Utc::now() + Duration::seconds(60),
-            CHAMP_UUID_TRANSACTIONS_NOTIFICATIONS: [],  // Vider notifications
+            CHAMP_MESSAGE_ID_NOTIFICATIONS: [],  // Vider notifications
         },
         "$currentDate": { CHAMP_MODIFICATION: true },
     };
