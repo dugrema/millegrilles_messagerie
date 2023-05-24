@@ -1351,8 +1351,23 @@ async fn generer_contenu_notification<M>(
                 debug!("generer_contenu_notification Generer liste from/subject pour {} messages", nombre_notifications);
 
                 let title = format!("{} nouveaux messages recus", nombre_notifications);
-                let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
-                let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+
+                let mut body_detail = String::new();
+                for notif in detail.into_iter() {
+                    let niveau = match notif.niveau {
+                        Some(inner) => inner,
+                        None => "".to_string()
+                    };
+                    let mut ligne_notif = format!("De : {} [{}] ", notif.from, niveau);
+                    if let Some(subject) = notif.subject {
+                        ligne_notif.push_str(subject.as_str());
+                    }
+                    body_detail.push_str(ligne_notif.as_str());
+                    body_detail.push('\n');
+                }
+
+                let body_email = body_detail.clone();
+                let body_webpush = body_detail;
 
                 (title, body_email, body_webpush)
             }
