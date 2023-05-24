@@ -1,3 +1,4 @@
+use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::sync::Arc;
@@ -32,7 +33,7 @@ use millegrilles_common_rust::openssl::pkey::{PKey, Private};
 use millegrilles_common_rust::openssl::bn::BigNumContext;
 use millegrilles_common_rust::openssl::nid::Nid;
 use millegrilles_common_rust::openssl::ec::{EcGroup, EcKey, PointConversionForm};
-use millegrilles_common_rust::dechiffrage::dechiffrer_documents;
+use millegrilles_common_rust::dechiffrage::{dechiffrer_documents, get_cles_dechiffrees};
 use millegrilles_common_rust::messages_generiques::{CommandeCleRechiffree, CommandeDechiffrerCle, ConfirmationTransmission};
 use millegrilles_common_rust::serde_json::Value;
 use web_push::{ContentEncoding, PartialVapidSignatureBuilder, SubscriptionInfo, VapidSignatureBuilder, WebPushClient, WebPushMessageBuilder};
@@ -1035,7 +1036,7 @@ async fn emettre_notifications_usager<M>(middleware: &M, m: MessageValideAction,
 
 async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNotificationsOutgoing)
     -> Result<(), Box<dyn Error>>
-    where M: GenerateurMessages + MongoDao
+    where M: GenerateurMessages + MongoDao + CleChiffrageHandler
 {
     // Charger profil usager. Si profil inconnu, on abandonne.
     let user_id = &notifications.user_id;
@@ -1199,21 +1200,203 @@ struct ContenuNotification {
     icon: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+struct DetailNotification {
+    from: String,
+    subject: Option<String>,
+    summary: Option<String>,
+    niveau: Option<String>,
+}
+
+async fn dechiffrer_notifications<M>(
+    middleware: &M,
+    user_id: &str,
+    message_ids: &Vec<String>
+)
+    -> Result<Vec<DetailNotification>, Box<dyn Error>>
+    where M: GenerateurMessages + MongoDao + CleChiffrageHandler
+{
+    let mut notifications = Vec::new();
+
+    let filtre = doc!{
+        CHAMP_USER_ID: user_id,
+        "message.id": {"$in": message_ids},
+
+        // S'assurer que la notification n'est pas deja lue ou supprimee
+        CHAMP_SUPPRIME: false,
+        "lu": false,
+    };
+    let collection = middleware.get_collection(NOM_COLLECTION_INCOMING)?;
+    let mut curseur = collection.find(filtre, None).await?;
+    while let Some(r) = curseur.next().await {
+        let d = r?;
+        let di: DocumentIncoming = convertir_bson_deserializable(d)?;
+        debug!("dechiffrer_notifications Message (notification) charge : {:?}", di);
+        let niveau = di.niveau.clone();
+
+        let message_inter = MessageInterMillegrille::try_from(di.message)?;
+        debug!("dechiffrer_notifications Message inter : {:?}", message_inter);
+
+        // Charger cle secrete
+        let hachage_bytes = if let Some(hachage) = message_inter.dechiffrage.hachage.as_ref() {
+            hachage
+        } else if let Some(hachage) = message_inter.dechiffrage.cle_id.as_ref() {
+            hachage
+        } else {
+            info!("dechiffrer_notifications Aucune information hachage_bytes/cle_id pour notification, skip");
+            continue;
+        };
+
+        debug!("dechiffrer_notifications get_cles_dechiffrees : {}", hachage_bytes);
+        let cle_dechiffree = match get_cles_dechiffrees(middleware, vec![hachage_bytes.as_str()]).await {
+            Ok(mut inner) => {
+                match inner.remove(hachage_bytes) {
+                    Some(inner) => inner,
+                    None => {
+                        info!("dechiffrer_notifications Cle inconnue, skip");
+                        continue;
+                    }
+                }
+            },
+            Err(e) => {
+                info!("dechiffrer_notifications Erreur, skip : {:?}", e);
+                continue;
+            }
+        };
+
+        debug!("dechiffrer_notifications Cle recue, dechiffrer message");
+        let resultat = message_inter.dechiffrer_avec_cle(middleware, cle_dechiffree.cle_secrete)?;
+        let contenu: MessageIncomingContenu = serde_json::from_slice(&resultat.data_dechiffre[..])?;
+        debug!("dechiffrer_notifications Message dechiffre : {:?}", contenu);
+
+        // Utiliser scraper pour changer de HTML a texte
+        let frag = scraper::Html::parse_fragment(contenu.content.as_str());
+        let mut contenu_parsed = String::new();
+        for node in frag.tree {
+            if let scraper::node::Node::Text(text) = node {
+                let texte_ref = text.text.as_ref();
+                contenu_parsed.push_str(texte_ref);
+            }
+            if contenu_parsed.len() > 250 {
+                break;  // Arreter traitement, on a assez pour le summary
+            }
+        }
+
+        let len_contenu = contenu_parsed.len();
+        let len_summary = cmp::min(len_contenu, 250);
+        let summary = &contenu_parsed[..len_summary];
+
+        notifications.push(DetailNotification {
+            from: contenu.from,
+            subject: contenu.subject,
+            summary: Some(summary.to_string()),
+            niveau
+        } );
+    }
+
+    debug!("dechiffrer_notifications Messages dechiffres : {:?}", notifications);
+
+    Ok(notifications)
+}
+
 async fn generer_contenu_notification<M>(
     middleware: &M,
     configuration_notifications: Option<&ReponseConfigurationNotifications>,
     notifications: &UsagerNotificationsOutgoing
 )
     -> Result<ContenuNotification, Box<dyn Error>>
-    where M: GenerateurMessages
+    where M: GenerateurMessages + MongoDao + CleChiffrageHandler
 {
-    let nombre_notifications = match notifications.message_id_notifications.as_ref() {
-        Some(inner) => inner.len(),
-        None => 0
+    let liste_message_ids = match notifications.message_id_notifications.as_ref() {
+        Some(inner) => inner,
+        None => Err(format!("Aucunes notifications fournies"))?
     };
-    let title = format!("{} nouveaux messages recus", nombre_notifications);
-    let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
-    let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    let nombre_notifications = liste_message_ids.len();
+
+    let detail_notifications = if nombre_notifications <= 4 {
+        // Aller chercher les details des notifications et les dechiffrer
+        Some(dechiffrer_notifications(middleware, notifications.user_id.as_str(), liste_message_ids).await?)
+    } else {
+        None
+    };
+
+    let (title, body_email, body_webpush) = match detail_notifications {
+        Some(mut detail) => {
+            if detail.len() == 0 {
+                Err(format!("generer_contenu_notification Il ne reste aucun message non-lu/supprime pour les notifications"))?
+            } else if detail.len() == 1 {
+                debug!("generer_contenu_notification Generer notification detaillee pour 1 message");
+                let notification_detail = detail.pop().expect("detail.pop");
+
+                let niveau = match notification_detail.niveau {
+                    Some(inner) => inner,
+                    None => "info".to_string()
+                };
+
+                let title = match notification_detail.subject.as_ref() {
+                    Some(subject) => format!("[{}] {}", niveau, subject),
+                    None => format!("Notification de {}", notification_detail.from)
+                };
+
+                let body_detail = match notification_detail.summary {
+                    Some(inner) => format!("De: {}\n\n{}", notification_detail.from, inner),
+                    None => format!("De: {}", notification_detail.from)
+                };
+
+                let body_email = body_detail.clone();
+                let body_webpush = body_detail;
+
+                (title, body_email, body_webpush)
+            } else {
+                debug!("generer_contenu_notification Generer liste from/subject pour {} messages", nombre_notifications);
+
+                let title = format!("{} nouveaux messages recus", nombre_notifications);
+                let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+                let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+
+                (title, body_email, body_webpush)
+            }
+        },
+        None => {
+            debug!("generer_contenu_notification Generer notification generique pour {} messages", nombre_notifications);
+
+            let title = format!("{} nouveaux messages recus", nombre_notifications);
+            let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+            let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+
+            (title, body_email, body_webpush)
+        }
+    };
+
+    // let (title, body_email, body_webpush) = if nombre_notifications == 1 {
+    //     debug!("generer_contenu_notification Generer notification detaillee pour 1 message");
+    //
+    //     let title = format!("{} nouveaux messages recus", nombre_notifications);
+    //     let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    //     let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    //
+    //     (title, body_email, body_webpush)
+    // } else if nombre_notifications > 1 && nombre_notifications <= 4 {
+    //     debug!("generer_contenu_notification Generer liste from/subject pour {} messages", nombre_notifications);
+    //
+    //     let title = format!("{} nouveaux messages recus", nombre_notifications);
+    //     let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    //     let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    //
+    //     (title, body_email, body_webpush)
+    // } else {
+    //     debug!("generer_contenu_notification Generer notification generique pour {} messages", nombre_notifications);
+    //
+    //     let title = format!("{} nouveaux messages recus", nombre_notifications);
+    //     let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    //     let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    //
+    //     (title, body_email, body_webpush)
+    // };
+
+    // let title = format!("{} nouveaux messages recus", nombre_notifications);
+    // let body_email = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
+    // let body_webpush = format!("{} nouveaux messages sont disponibles.\nAccedez au contenu sur la page web MilleGrilles.", nombre_notifications);
 
     let email_from = match &configuration_notifications {
         Some(inner) => match inner.email_from.as_ref() {

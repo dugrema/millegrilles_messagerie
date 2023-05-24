@@ -297,20 +297,20 @@ pub struct RequeteGetReferenceMessages {
 //     pub mimetype: String,
 //     pub media: Option<AttachedMedia>
 // }
-//
-// #[derive(Clone, Debug, Serialize, Deserialize)]
-// pub struct MessageIncoming {
-//     pub from: String,
-//     pub subject: Option<String>,
-//     pub version: i64,
-//     pub format: String,
-//     pub content: String,
-//     pub to: Option<Vec<String>>,
-//     pub reply_to: Option<String>,
-//     pub cc: Option<Vec<String>>,
-//     pub thread: Option<String>,
-//     pub files: Option<Vec<AttachedFile>>,
-// }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MessageIncomingContenu {
+    pub from: String,
+    pub subject: Option<String>,
+    pub version: i64,
+    pub format: String,
+    pub content: String,
+    pub to: Option<Vec<String>>,
+    pub reply_to: Option<String>,
+    pub cc: Option<Vec<String>>,
+    pub thread: Option<String>,
+    // pub files: Option<Vec<AttachedFile>>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MessageIncoming {
@@ -328,6 +328,7 @@ pub struct DocumentIncoming {
     pub date_ouverture: Option<DateEpochSeconds>,
     pub fichiers: Option<HashMap<String, bool>>,
     pub fichiers_completes: bool,
+    pub niveau: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

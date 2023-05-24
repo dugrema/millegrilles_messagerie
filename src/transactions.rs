@@ -473,6 +473,7 @@ async fn transaction_recevoir<M, T>(gestionnaire: &GestionnaireMessagerie, middl
                     date_ouverture: None,
                     fichiers: map_attachements.clone(),
                     fichiers_completes: attachements_recus,
+                    niveau: None,
                 };
 
                 {
