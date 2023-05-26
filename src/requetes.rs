@@ -428,7 +428,7 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
         None => Err(format!("requetes.requete_get_permission Pas de correlation_id pour message"))?
     };
     let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCLES, REQUETE_DECHIFFRAGE)
-        .exchanges(vec![Securite::L2Prive])
+        .exchanges(vec![Securite::L3Protege])
         .reply_to(reply_to)
         .correlation_id(correlation_id)
         .blocking(false)
