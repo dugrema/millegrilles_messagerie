@@ -24,6 +24,7 @@ use millegrilles_common_rust::serde_json::Value;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::verificateur::VerificateurMessage;
+use millegrilles_common_rust::common_messages::RequeteDechiffrage;
 
 use crate::gestionnaire::GestionnaireMessagerie;
 use crate::constantes::*;
@@ -407,10 +408,15 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
         return Ok(Some(middleware.formatter_reponse(&json!({"ok": true, "message": "Aucun message correspondant trouve"}), None)?));
     }
 
-    let permission = json!({
-        "liste_hachage_bytes": hachage_bytes,
-        "certificat_rechiffrage": pem_rechiffrage,
-    });
+    let permission = RequeteDechiffrage {
+        domaine: DOMAINE_NOM.to_string(),
+        liste_hachage_bytes: Vec::from_iter(hachage_bytes.into_iter()),
+        certificat_rechiffrage: Some(pem_rechiffrage),
+    };
+    // let permission = json!({
+    //     "liste_hachage_bytes": hachage_bytes,
+    //     "certificat_rechiffrage": pem_rechiffrage,
+    // });
 
     // Emettre requete de rechiffrage de cle, reponse acheminee directement au demandeur
     let reply_to = match m.reply_q {
@@ -465,10 +471,15 @@ async fn requete_get_profil<M>(middleware: &M, m: MessageValideAction)
                     DOMAINE_NOM_MAITREDESCLES, MAITREDESCLES_REQUETE_DECHIFFRAGE)
                     .exchanges(vec![Securite::L4Secure])
                     .build();
-                let requete_cle = json!({
-                    "liste_hachage_bytes": [profil_reponse.cle_ref_hachage_bytes.as_str()],
-                    "certificat_rechiffrage": pem,
-                });
+                let requete_cle = RequeteDechiffrage {
+                    domaine: DOMAINE_NOM.to_string(),
+                    liste_hachage_bytes: vec![profil_reponse.cle_ref_hachage_bytes.clone()],
+                    certificat_rechiffrage: Some(pem),
+                };
+                // let requete_cle = json!({
+                //     "liste_hachage_bytes": [profil_reponse.cle_ref_hachage_bytes.as_str()],
+                //     "certificat_rechiffrage": pem,
+                // });
                 debug!("requete_get_profil Requete cle : {:?}", requete_cle);
                 if let TypeMessage::Valide(reponse_cle) = middleware.transmettre_requete(routage, &requete_cle).await? {
                     debug!("requete_get_profil Reponse cle : {:?}", reponse_cle);
@@ -738,10 +749,15 @@ async fn requete_get_cles_stream<M>(middleware: &M, m: MessageValideAction, gest
         None => Err(format!(""))?
     };
 
-    let permission = json!({
-        "liste_hachage_bytes": hachage_bytes,
-        "certificat_rechiffrage": pem_rechiffrage,
-    });
+    // let permission = json!({
+    //     "liste_hachage_bytes": hachage_bytes,
+    //     "certificat_rechiffrage": pem_rechiffrage,
+    // });
+    let permission = RequeteDechiffrage {
+        domaine: DOMAINE_NOM.to_string(),
+        liste_hachage_bytes: hachage_bytes,
+        certificat_rechiffrage: Some(pem_rechiffrage),
+    };
 
     // Emettre requete de rechiffrage de cle, reponse acheminee directement au demandeur
     let reply_to = match m.reply_q {
