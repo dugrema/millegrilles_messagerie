@@ -3,7 +3,7 @@ use std::error::Error;
 use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
 
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use millegrilles_common_rust::{serde_json, serde_json::json};
 use millegrilles_common_rust::async_trait::async_trait;
 use millegrilles_common_rust::bson::{Bson, doc, Document};
@@ -319,7 +319,13 @@ async fn requete_get_permission_messages<M>(middleware: &M, m: MessageValideActi
     };
 
     debug!("requete_get_permission Message : {:?}", & m.message);
-    let requete: ParametresGetPermissionMessages = m.message.get_msg().map_contenu()?;
+    let requete: ParametresGetPermissionMessages = match m.message.get_msg().map_contenu() {
+        Ok(inner) => inner,
+        Err(e) => {
+            info!("Erreur mapping ParametresGetPermissionMessages : {:?}", e);
+            return Ok(Some(middleware.formatter_reponse(json!({"ok": false, "err": format!("Erreur mapping requete : {:?}", e)}), None)?))
+        }
+    };
     debug!("requete_get_permission parsed : {:?}", requete);
 
     let messages_envoyes = match requete.messages_envoyes { Some(b) => b, None => false };
