@@ -835,7 +835,9 @@ async fn requete_get_configuration_notifications<M>(middleware: &M, m: MessageVa
                 if let Some(inner) = &configuration.smtp {
                     if let Some(ref_hachage_bytes) = &inner.chiffre.ref_hachage_bytes {
                         let cles = get_cles_rechiffrees(
-                            middleware, &vec![ref_hachage_bytes.as_str()], Some(certificat.as_ref())).await?;
+                            middleware, &vec![ref_hachage_bytes.as_str()],
+                            Some(certificat.as_ref()), Some(DOMAINE_NOM.to_string())
+                        ).await?;
                         debug!("Reponse cles dechiffrage configuration : {:?}", cles);
                         configuration.cles = cles.cles;
                     }

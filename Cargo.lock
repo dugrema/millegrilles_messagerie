@@ -2082,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "millegrilles_messagerie"
-version = "2023.6.1"
+version = "2023.6.2"
 dependencies = [
  "base64 0.21.0",
  "env_logger",

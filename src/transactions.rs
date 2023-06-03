@@ -25,6 +25,7 @@ use millegrilles_common_rust::serde_json::{Map, Value};
 use millegrilles_common_rust::transactions::Transaction;
 use millegrilles_common_rust::tokio_stream::StreamExt;
 use millegrilles_common_rust::verificateur::{ValidationOptions, VerificateurMessage};
+use crate::commandes::recevoir_notification;
 use crate::communs::url_to_mongokey;
 
 use crate::constantes::*;
@@ -59,7 +60,8 @@ where
         TRANSACTION_SAUVEGARDER_USAGER_CONFIG_NOTIFICATIONS |
         TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH |
         TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH |
-        TRANSACTION_TRANSFERT_FICHIERS_COMPLETES
+        TRANSACTION_TRANSFERT_FICHIERS_COMPLETES |
+        TRANSACTION_NOTIFIER
         => {
             match m.verifier_exchanges(vec![Securite::L4Secure]) {
                 true => Ok(()),
@@ -98,6 +100,7 @@ pub async fn aiguillage_transaction<M, T>(gestionnaire: &GestionnaireMessagerie,
         TRANSACTION_SAUVEGARDER_SUBSCRIPTION_WEBPUSH => sauvegarder_subscription_webpush(gestionnaire, middleware, transaction).await,
         TRANSACTION_RETIRER_SUBSCRIPTION_WEBPUSH => retirer_subscription_webpush(gestionnaire, middleware, transaction).await,
         TRANSACTION_TRANSFERT_FICHIERS_COMPLETES => transfert_fichiers_completes(gestionnaire, middleware, transaction).await,
+        TRANSACTION_NOTIFIER => conserver_notification(gestionnaire, middleware, transaction).await,
         _ => Err(format!("core_backup.aiguillage_transaction: Transaction {} est de type non gere : {}", transaction.get_uuid_transaction(), action)),
     }
 }
@@ -1419,6 +1422,38 @@ pub async fn transfert_fichiers_completes<M, T>(
         },
         Err(e) => Err(format!("transactions.transfert_fichiers_completes Erreur update pour transfert complete {} : {:?}", message_id, e))?
     };
+
+    Ok(middleware.reponse_ok()?)
+}
+
+async fn conserver_notification<M, T>(gestionnaire: &GestionnaireMessagerie, middleware: &M, transaction: T)
+    -> Result<Option<MessageMilleGrille>, String>
+    where
+        M: GenerateurMessages + MongoDao + ValidateurX509 + VerificateurMessage,
+        T: Transaction
+{
+    debug!("conserver_notification Consommer transaction : {:?}", &transaction);
+    let message_id = transaction.get_uuid_transaction().to_owned();
+
+    let commande: CommandeRecevoir = match transaction.clone().convertir() {
+        Ok(t) => t,
+        Err(e) => Err(format!("transaction_recevoir Erreur conversion transaction : {:?}", e))?
+    };
+
+    let destinataires = match commande.destinataires.clone() {
+        Some(inner) => inner,
+        None => Err(format!("transactions.conserver_notification Notification persistante sans destinataires - skip."))?
+    };
+
+    let enveloppe = match transaction.get_enveloppe_certificat() {
+        Some(inner) => inner,
+        None => Err(format!("Erreur chargement certificat"))?
+    };
+
+    debug!("conserver_notification Sauvegarder notification via transaction");
+    if let Err(e) = recevoir_notification(middleware, message_id, &commande, enveloppe, destinataires).await {
+        Err(format!("transactions.conserver_notification Erreur recevoir_notification: {:?}", e))?
+    }
 
     Ok(middleware.reponse_ok()?)
 }

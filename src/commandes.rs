@@ -1081,7 +1081,7 @@ async fn generer_notification_usager<M>(middleware: &M, notifications: UsagerNot
 
     // Demander cles de dechiffrage
     debug!("generer_notification_usager Dechiffrer configuration notifications email");
-    let data_dechiffre = dechiffrer_documents(middleware, data_chiffre).await?;
+    let data_dechiffre = dechiffrer_documents(middleware, data_chiffre, Some(DOMAINE_NOM.to_string())).await?;
 
     let mut mapping_dechiffre = HashMap::new();
     for d in data_dechiffre {
@@ -1248,7 +1248,9 @@ async fn dechiffrer_notifications<M>(
         };
 
         debug!("dechiffrer_notifications get_cles_dechiffrees : {}", hachage_bytes);
-        let cle_dechiffree = match get_cles_dechiffrees(middleware, vec![hachage_bytes.as_str()]).await {
+        let cle_dechiffree = match get_cles_dechiffrees(
+            middleware, vec![hachage_bytes.as_str()], Some(DOMAINE_NOM.to_string())).await
+        {
             Ok(mut inner) => {
                 match inner.remove(hachage_bytes) {
                     Some(inner) => inner,
@@ -1558,14 +1560,14 @@ async fn commande_notifier<M>(middleware: &M, mut m: MessageValideAction, gestio
     }
 
     // Determiner les destinataires
-    let (destinataires, expiration) = match &commande.destinataires {
-        Some(d) => (d.clone(), commande.expiration.clone()),
+    let destinataires = match &commande.destinataires {
+        Some(d) => d.clone(),
         None => {
-            // Forcer expiration de la notification (volatile)
-            let expiration = match commande.expiration {
-                Some(e) => Some(e),
-                None => Some(CONST_EXPIRATION_NOTIFICATION_DEFAUT)
-            };
+            // Une notification sans destinataires doit etre volatile
+            if commande.expiration.is_none() {
+                Err(format!("Une notification sans destinataires (systeme) doit avoir une expiration"))?
+            }
+
             // Charger la liste des proprietaires (requete a MaitreDesComptes)
             let routage = RoutageMessageAction::builder(DOMAINE_NOM_MAITREDESCOMPTES, ACTION_GET_LISTE_PROPRIETAIRES)
                 .exchanges(vec![Securite::L3Protege])
@@ -1576,23 +1578,24 @@ async fn commande_notifier<M>(middleware: &M, mut m: MessageValideAction, gestio
                     debug!("Reponse liste proprietaires : {:?}", m);
                     let reponse: ReponseListeUsagers = m.message.parsed.map_contenu()?;
                     let user_ids: Vec<String> = reponse.usagers.into_iter().map(|u| u.user_id).collect();
-                    (user_ids, expiration)
+                    user_ids
                 },
                 _ => Err(format!("Erreur chargement liste proprietaires"))?
             }
         }
     };
 
+    // Sauvegarder la cle au besoin
+    if let Some(mut attachements) = m.message.parsed.attachements.take() {
+        if let Some(cle_value) = attachements.remove("cle") {
+            sauvegarde_attachement_cle(middleware, cle_value).await?;
+        }
+    }
+
     // Verifier si la notification est volatile (avec expiration).
     // Les notifications volatiles ne sont pas sauvegardees via transaction.
     match &commande.expiration {
         Some(e) => {
-            // Sauvegarder la cle au besoin
-            if let Some(mut attachements) = m.message.parsed.attachements.take() {
-                if let Some(cle_value) = attachements.remove("cle") {
-                    sauvegarde_attachement_cle(middleware, cle_value).await?;
-                }
-            }
             debug!("Sauvegarder notification volatile, expiration {}", e);
             recevoir_notification(middleware, message_id, &commande, enveloppe, destinataires).await?;
             Ok(middleware.reponse_ok()?)
@@ -1606,7 +1609,7 @@ async fn commande_notifier<M>(middleware: &M, mut m: MessageValideAction, gestio
     }
 }
 
-async fn recevoir_notification<M>(
+pub async fn recevoir_notification<M>(
     middleware: &M,
     message_id: String,
     notification: &CommandeRecevoir,
